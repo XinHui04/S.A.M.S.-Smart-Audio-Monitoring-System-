@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>S.A.M.S. — Smart Audio Monitoring System</title>
+<style>
+  /* ── Design tokens ──────────────────────────────────────────────────────────
+     Palette built around the urgency of security monitoring:
+     Deep navy background — authority, focus, reduces eye strain on long shifts
+     Amber as primary accent — alert colour that isn't aggressive red
+     Severity colours: red(high) / amber(medium) / teal(low)
+     Mono typeface for data, sans for UI chrome
+  ─────────────────────────────────────────────────────────────────────────── */
+  :root {
+    --bg-base:       #0d1117;
+    --bg-surface:    #161b22;
+    --bg-elevated:   #1c2128;
+    --bg-hover:      #222830;
+    --border:        #30363d;
+    --border-subtle: #21262d;
+
+    --text-primary:  #e6edf3;
+    --text-secondary:#8b949e;
+    --text-muted:    #484f58;
+
+    --amber:         #f0a500;
+    --amber-dim:     #3d2a00;
+    --red:           #f85149;
+    --red-dim:       #3d0f0f;
+    --teal:          #39d353;
+    --teal-dim:      #0d2b18;
+    --blue:          #58a6ff;
+    --blue-dim:      #0d2149;
+
+    --font-ui:   'Inter', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+    --radius:  6px;
+    --radius-lg: 10px;
+  }
+
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  /* ── Layout ──────────────────────────────────────────────────────────────── */
+  .app { display: grid; grid-template-rows: 56px 1fr; height: 100vh; }
+
+  /* ── Topbar ──────────────────────────────────────────────────────────────── */
+  .topbar {
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 16px;
+    position: sticky; top: 0; z-index: 100;
+  }
+  .topbar-logo {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 15px; font-weight: 600; letter-spacing: -0.3px;
+  }
+  .topbar-logo svg { color: var(--amber); }
+  .topbar-logo span.sub { color: var(--text-secondary); font-weight: 400; font-size: 12px; }
+  .topbar-spacer { flex: 1; }
+  .ws-badge {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; font-family: var(--font-mono);
+    color: var(--text-secondary);
+  }
+  .ws-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--text-muted);
+    transition: background 0.3s;
+  }
+  .ws-dot.connected { background: var(--teal); box-shadow: 0 0 6px var(--teal); }
+  .ws-dot.error     { background: var(--red); }
+  .topbar-time {
+    font-family: var(--font-mono); font-size: 12px;
+    color: var(--text-secondary); min-width: 80px; text-align: right;
+  }
+
+  /* ── Main content ────────────────────────────────────────────────────────── */
+  .main { display: grid; grid-template-columns: 300px 1fr; overflow: hidden; }
+
+  /* ── Sidebar ─────────────────────────────────────────────────────────────── */
+  .sidebar {
+    background: var(--bg-surface);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .sidebar-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidebar-tab {
+    flex: 1; padding: 10px 0; text-align: center;
+    font-size: 12px; font-weight: 500;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+  }
+  .sidebar-tab:hover  { color: var(--text-primary); background: var(--bg-hover); }
+  .sidebar-tab.active { color: var(--amber); border-bottom-color: var(--amber); }
+
+  .sidebar-list { flex: 1; overflow-y: auto; padding: 8px; }
+  .sidebar-list::-webkit-scrollbar { width: 4px; }
+  .sidebar-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* ── Alert card in sidebar ───────────────────────────────────────────────── */
+  .alert-card {
+    padding: 10px 12px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border-subtle);
+    margin-bottom: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+    position: relative;
+    overflow: hidden;
+  }
+  .alert-card::before {
+    content: '';
+    position: absolute; left: 0; top: 0; bottom: 0;
+    width: 3px;
+  }
+  .alert-card.high::before   { background: var(--red); }
+  .alert-card.medium::before { background: var(--amber); }
+  .alert-card.low::before    { background: var(--teal); }
+  .alert-card:hover  { background: var(--bg-hover); border-color: var(--border); }
+  .alert-card.active { background: var(--bg-elevated); border-color: var(--border); }
+
+  .alert-card-top {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 4px;
+  }
+  .sev-badge {
+    font-size: 10px; font-weight: 600; font-family: var(--font-mono);
+    padding: 1px 6px; border-radius: 3px; text-transform: uppercase;
+  }
+  .sev-badge.high   { background: var(--red-dim);   color: var(--red);   }
+  .sev-badge.medium { background: var(--amber-dim);  color: var(--amber); }
+  .sev-badge.low    { background: var(--teal-dim);   color: var(--teal);  }
+
+  .alert-card-location {
+    font-size: 13px; font-weight: 500; flex: 1;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .alert-card-time {
+    font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);
+  }
+  .alert-card-transcript {
+    font-size: 12px; color: var(--text-secondary);
+    overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; margin-top: 2px;
+  }
+  .alert-card-status {
+    font-size: 10px; color: var(--text-muted); margin-top: 4px;
+    text-transform: uppercase; font-family: var(--font-mono); letter-spacing: 0.5px;
+  }
+  .alert-card-status.resolved { color: var(--teal); }
+
+  /* ── Detail panel ────────────────────────────────────────────────────────── */
+  .detail { display: flex; flex-direction: column; overflow: hidden; }
+
+  .detail-empty {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    color: var(--text-muted); gap: 12px;
+  }
+  .detail-empty svg { opacity: 0.3; }
+  .detail-empty p   { font-size: 13px; }
+
+  /* ── Stats strip ─────────────────────────────────────────────────────────── */
+  .stats-strip {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 1px; background: var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  .stat-cell {
+    background: var(--bg-surface);
+    padding: 12px 16px;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .stat-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-value { font-size: 22px; font-weight: 600; font-family: var(--font-mono); }
+  .stat-value.red    { color: var(--red);   }
+  .stat-value.amber  { color: var(--amber); }
+  .stat-value.teal   { color: var(--teal);  }
+  .stat-value.blue   { color: var(--blue);  }
+
+  /* ── Detail content ──────────────────────────────────────────────────────── */
+  .detail-content {
+    flex: 1; overflow-y: auto; padding: 20px;
+  }
+  .detail-content::-webkit-scrollbar { width: 4px; }
+  .detail-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .detail-header {
+    display: flex; align-items: flex-start;
+    justify-content: space-between; gap: 16px;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .detail-title { font-size: 18px; font-weight: 600; }
+  .detail-meta  { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+  .meta-pill {
+    font-size: 11px; font-family: var(--font-mono);
+    padding: 2px 8px; border-radius: 100px;
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    color: var(--text-secondary);
+  }
+
+  /* ── Score bar ───────────────────────────────────────────────────────────── */
+  .score-section { margin-bottom: 20px; }
+  .score-label {
+    font-size: 11px; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;
+  }
+  .score-row { display: flex; align-items: center; gap: 12px; }
+  .score-bar-track {
+    flex: 1; height: 6px; background: var(--bg-elevated);
+    border-radius: 3px; overflow: hidden;
+  }
+  .score-bar-fill {
+    height: 100%; border-radius: 3px;
+    transition: width 0.6s cubic-bezier(0.4,0,0.2,1);
+  }
+  .score-bar-fill.high   { background: var(--red);   }
+  .score-bar-fill.medium { background: var(--amber);  }
+  .score-bar-fill.low    { background: var(--teal);   }
+  .score-value {
+    font-family: var(--font-mono); font-size: 14px; font-weight: 500;
+    min-width: 40px; text-align: right;
+  }
+
+  /* ── Transcript box ──────────────────────────────────────────────────────── */
+  .transcript-box {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 14px 16px;
+    font-size: 14px; line-height: 1.7;
+    margin-bottom: 16px;
+    position: relative;
+  }
+  .transcript-box .box-label {
+    font-size: 10px; font-family: var(--font-mono);
+    color: var(--text-muted); text-transform: uppercase;
+    letter-spacing: 0.5px; margin-bottom: 6px;
+  }
+  .transcript-text { color: var(--text-primary); }
+  .keyword-hit {
+    background: var(--amber-dim);
+    color: var(--amber);
+    border-radius: 3px;
+    padding: 0 3px;
+  }
+
+  /* ── Audio player ────────────────────────────────────────────────────────── */
+  .audio-section { margin-bottom: 16px; }
+  .audio-player {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 12px 16px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .audio-play-btn {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: var(--amber); border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; transition: opacity 0.15s;
+  }
+  .audio-play-btn:hover { opacity: 0.85; }
+  .audio-waveform {
+    flex: 1; height: 32px;
+    background: var(--bg-base); border-radius: 4px;
+    display: flex; align-items: center;
+    overflow: hidden; gap: 2px; padding: 0 8px;
+  }
+  .wave-bar {
+    width: 2px; background: var(--border);
+    border-radius: 1px; flex-shrink: 0;
+    transition: background 0.1s;
+  }
+  .audio-duration {
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--text-muted); min-width: 36px; text-align: right;
+  }
+
+  /* ── Resolve form ────────────────────────────────────────────────────────── */
+  .resolve-section {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 14px 16px;
+    margin-bottom: 16px;
+  }
+  .resolve-section.resolved {
+    border-color: var(--teal-dim);
+    background: var(--teal-dim);
+  }
+  .resolve-title {
+    font-size: 12px; font-weight: 600;
+    margin-bottom: 10px; color: var(--text-secondary);
+    text-transform: uppercase; letter-spacing: 0.5px;
+    font-family: var(--font-mono);
+  }
+  .resolve-notes {
+    width: 100%;
+    background: var(--bg-base);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    font-family: var(--font-ui); font-size: 13px;
+    padding: 8px 10px; resize: vertical;
+    min-height: 60px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .resolve-notes:focus { border-color: var(--amber); }
+  .resolve-btn {
+    margin-top: 8px; padding: 7px 14px;
+    background: var(--amber); color: #000;
+    border: none; border-radius: var(--radius);
+    font-size: 13px; font-weight: 600; cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .resolve-btn:hover    { opacity: 0.85; }
+  .resolve-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .resolved-msg {
+    display: flex; align-items: center; gap: 8px;
+    color: var(--teal); font-size: 13px; font-weight: 500;
+  }
+
+  /* ── Toast notification ──────────────────────────────────────────────────── */
+  #toast-container {
+    position: fixed; top: 68px; right: 16px;
+    display: flex; flex-direction: column; gap: 8px;
+    z-index: 200; pointer-events: none;
+  }
+  .toast {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 12px 14px;
+    min-width: 280px; max-width: 360px;
+    pointer-events: all;
+    animation: slide-in 0.2s ease;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  }
+  .toast.high   { border-left: 3px solid var(--red);   }
+  .toast.medium { border-left: 3px solid var(--amber);  }
+  .toast.low    { border-left: 3px solid var(--teal);   }
+  @keyframes slide-in {
+    from { transform: translateX(20px); opacity: 0; }
+    to   { transform: translateX(0);    opacity: 1; }
+  }
+  .toast-header  { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .toast-title   { font-size: 13px; font-weight: 600; flex: 1; }
+  .toast-dismiss { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px; }
+  .toast-body    { font-size: 12px; color: var(--text-secondary); }
+
+  /* ── Analytics tab ───────────────────────────────────────────────────────── */
+  .analytics-panel { padding: 16px; }
+  .chart-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 14px; margin-bottom: 12px;
+  }
+  .chart-title {
+    font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.5px; color: var(--text-muted);
+    font-family: var(--font-mono); margin-bottom: 10px;
+  }
+
+  /* Simple bar chart */
+  .bar-chart { display: flex; flex-direction: column; gap: 6px; }
+  .bar-row { display: flex; align-items: center; gap: 8px; }
+  .bar-label { font-size: 12px; color: var(--text-secondary); width: 140px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar-track { flex: 1; height: 14px; background: var(--bg-elevated); border-radius: 3px; overflow: hidden; }
+  .bar-fill  { height: 100%; background: var(--amber); border-radius: 3px; transition: width 0.5s ease; }
+  .bar-count { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); min-width: 24px; text-align: right; }
+
+  /* Simple severity donut */
+  .donut-row { display: flex; align-items: center; gap: 16px; justify-content: center; }
+  .donut-legend { display: flex; flex-direction: column; gap: 6px; }
+  .legend-item  { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+  .legend-dot   { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+  /* Trend sparkline */
+  .sparkline { width: 100%; height: 60px; }
+
+  /* ── Filters bar ─────────────────────────────────────────────────────────── */
+  .filters {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex; gap: 6px; flex-wrap: wrap;
+  }
+  .filter-btn {
+    font-size: 11px; padding: 3px 10px; border-radius: 100px;
+    border: 1px solid var(--border); background: none;
+    color: var(--text-secondary); cursor: pointer;
+    font-family: var(--font-mono); transition: all 0.15s;
+  }
+  .filter-btn:hover  { border-color: var(--amber); color: var(--amber); }
+  .filter-btn.active { background: var(--amber-dim); border-color: var(--amber); color: var(--amber); }
+
+  .empty-state {
+    padding: 32px 16px; text-align: center;
+    color: var(--text-muted); font-size: 13px;
+  }
+
+  /* ── Detail grid sections ────────────────────────────────────────────────── */
+  .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+  .detail-field { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; }
+  .field-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 2px; }
+  .field-value { font-size: 13px; color: var(--text-primary); font-family: var(--font-mono); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ── Topbar ─────────────────────────────────────────────────────────── -->
+  <header class="topbar">
+    <div class="topbar-logo">
+      <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/>
+      </svg>
+      S.A.M.S.
+      <span class="sub">Smart Audio Monitoring System</span>
+    </div>
+    <div class="topbar-spacer"></div>
+    <div class="ws-badge">
+      <div class="ws-dot" id="ws-dot"></div>
+      <span id="ws-status">Connecting…</span>
+    </div>
+    <div class="topbar-time" id="clock"></div>
+  </header>
+
+  <!-- ── Main ───────────────────────────────────────────────────────────── -->
+  <div class="main">
+
+    <!-- ── Sidebar ──────────────────────────────────────────────────────── -->
+    <aside class="sidebar">
+      <div class="sidebar-tabs">
+        <div class="sidebar-tab active" data-tab="alerts" onclick="switchTab('alerts', this)">
+          Alerts <span id="alert-count-badge"></span>
+        </div>
+        <div class="sidebar-tab" data-tab="analytics" onclick="switchTab('analytics', this)">
+          Analytics
+        </div>
+      </div>
+
+      <!-- Alerts tab -->
+      <div id="tab-alerts" style="display:flex; flex-direction:column; flex:1; overflow:hidden;">
+        <div class="filters">
+          <button class="filter-btn active" onclick="setFilter('active', this)">Active</button>
+          <button class="filter-btn" onclick="setFilter('all', this)">All</button>
+          <button class="filter-btn" onclick="setFilter('resolved', this)">Resolved</button>
+          <button class="filter-btn" style="margin-left:auto" onclick="setFilter('high', this)">High</button>
+          <button class="filter-btn" onclick="setFilter('medium', this)">Med</button>
+          <button class="filter-btn" onclick="setFilter('low', this)">Low</button>
+        </div>
+        <div class="sidebar-list" id="alert-list">
+          <div class="empty-state">Loading alerts…</div>
+        </div>
+      </div>
+
+      <!-- Analytics tab -->
+      <div id="tab-analytics" style="display:none; overflow-y:auto; flex:1;">
+        <div class="analytics-panel" id="analytics-content">
+          <div class="empty-state">Loading…</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ── Detail panel ──────────────────────────────────────────────────── -->
+    <section class="detail">
+
+      <!-- Stats strip -->
+      <div class="stats-strip">
+        <div class="stat-cell">
+          <div class="stat-label">Active Alerts</div>
+          <div class="stat-value red" id="stat-active">—</div>
+        </div>
+        <div class="stat-cell">
+          <div class="stat-label">High Severity</div>
+          <div class="stat-value amber" id="stat-high">—</div>
+        </div>
+        <div class="stat-cell">
+          <div class="stat-label">Resolved Today</div>
+          <div class="stat-value teal" id="stat-resolved">—</div>
+        </div>
+        <div class="stat-cell">
+          <div class="stat-label">Total Incidents</div>
+          <div class="stat-value blue" id="stat-total">—</div>
+        </div>
+      </div>
+
+      <!-- Detail content -->
+      <div class="detail-content" id="detail-panel">
+        <div class="detail-empty">
+          <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+          </svg>
+          <p>Select an alert to view incident details</p>
+        </div>
+      </div>
+
+    </section>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div id="toast-container"></div>
+
+<script>
+// ── Config ────────────────────────────────────────────────────────────────────
+const API   = 'http://localhost:8000';
+const WS_URL = 'ws://localhost:8000/ws/dashboard';
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let alerts       = [];
+let selectedId   = null;
+let filterStatus = 'active';
+let filterSev    = null;
+let ws           = null;
+let currentAudio = null;
+
+// ── Clock ─────────────────────────────────────────────────────────────────────
+function updateClock() {
+  document.getElementById('clock').textContent =
+    new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ── WebSocket (Module 4 — real-time push) ─────────────────────────────────────
+function connectWS() {
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => {
+    document.getElementById('ws-dot').className    = 'ws-dot connected';
+    document.getElementById('ws-status').textContent = 'Live';
+    // Heartbeat
+    setInterval(() => ws.readyState === 1 && ws.send('ping'), 25000);
+  };
+
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'ALERT') {
+      handleIncomingAlert(msg);
+    }
+  };
+
+  ws.onclose = () => {
+    document.getElementById('ws-dot').className    = 'ws-dot error';
+    document.getElementById('ws-status').textContent = 'Reconnecting…';
+    setTimeout(connectWS, 3000);
+  };
+
+  ws.onerror = () => {
+    document.getElementById('ws-dot').className    = 'ws-dot error';
+    document.getElementById('ws-status').textContent = 'Disconnected';
+  };
+}
+
+function handleIncomingAlert(msg) {
+  // Add to list immediately without waiting for API refresh
+  const existing = alerts.find(a => a.alert_id === msg.alert_id);
+  if (!existing) {
+    alerts.unshift({
+      alert_id:       msg.alert_id,
+      event_id:       msg.event_id,
+      severity:       msg.severity,
+      status:         'active',
+      location_name:  msg.location_name,
+      transcript:     msg.transcript,
+      threat_score:   msg.threat_score,
+      classification: msg.classification,
+      audio_url:      msg.audio_url,
+      created_at:     msg.timestamp,
+    });
+    renderAlertList();
+    loadStats();
+    showToast(msg);
+    playAlertSound(msg.severity);
+  }
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function showToast(msg) {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = `toast ${msg.severity}`;
+  toast.innerHTML = `
+    <div class="toast-header">
+      <span class="sev-badge ${msg.severity}">${msg.severity}</span>
+      <span class="toast-title">${escHtml(msg.location_name)}</span>
+      <button class="toast-dismiss" onclick="this.parentElement.parentElement.remove()">×</button>
+    </div>
+    <div class="toast-body">${escHtml((msg.transcript || '').substring(0, 80))}${msg.transcript?.length > 80 ? '…' : ''}</div>
+  `;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 6000);
+}
+
+// Simple audio alert beep using Web Audio API
+function playAlertSound(severity) {
+  try {
+    const ctx  = new (window.AudioContext || window.webkitAudioContext)();
+    const osc  = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = severity === 'high' ? 880 : severity === 'medium' ? 660 : 440;
+    gain.gain.setValueAtTime(0.1, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+    osc.start(); osc.stop(ctx.currentTime + 0.4);
+  } catch(_) {}
+}
+
+// ── Data loading ───────────────────────────────────────────────────────────────
+async function loadAlerts() {
+  try {
+    const sev    = filterSev ? `&severity=${filterSev}` : '';
+    const status = filterStatus === 'high' || filterStatus === 'medium' || filterStatus === 'low'
+                   ? 'all' : filterStatus;
+    const res  = await fetch(`${API}/api/alerts/?status=${status}${sev}&per_page=50`);
+    const data = await res.json();
+    alerts = data.alerts || [];
+    renderAlertList();
+  } catch(e) {
+    document.getElementById('alert-list').innerHTML =
+      '<div class="empty-state">Could not reach API — is the backend running?</div>';
+  }
+}
+
+async function loadStats() {
+  try {
+    const res  = await fetch(`${API}/api/alerts/stats`);
+    const data = await res.json();
+    document.getElementById('stat-active').textContent   = data.active_alerts ?? '—';
+    document.getElementById('stat-high').textContent     = data.high ?? '—';
+    document.getElementById('stat-resolved').textContent = data.resolved_alerts ?? '—';
+    document.getElementById('stat-total').textContent    =
+      (data.active_alerts || 0) + (data.resolved_alerts || 0);
+    document.getElementById('alert-count-badge').textContent =
+      data.active_alerts > 0 ? ` (${data.active_alerts})` : '';
+  } catch(_) {}
+}
+
+// ── Alert list rendering ───────────────────────────────────────────────────────
+function renderAlertList() {
+  const list = document.getElementById('alert-list');
+  let   data = [...alerts];
+
+  if (filterStatus === 'active')   data = data.filter(a => a.status === 'active');
+  if (filterStatus === 'resolved') data = data.filter(a => a.status === 'resolved');
+  if (filterStatus === 'high')     data = data.filter(a => a.severity === 'high');
+  if (filterStatus === 'medium')   data = data.filter(a => a.severity === 'medium');
+  if (filterStatus === 'low')      data = data.filter(a => a.severity === 'low');
+
+  if (!data.length) {
+    list.innerHTML = '<div class="empty-state">No alerts match this filter</div>';
+    return;
+  }
+
+  list.innerHTML = data.map(a => `
+    <div class="alert-card ${a.severity} ${selectedId === a.alert_id ? 'active' : ''}"
+         onclick="selectAlert('${a.alert_id}')">
+      <div class="alert-card-top">
+        <span class="sev-badge ${a.severity}">${a.severity}</span>
+        <span class="alert-card-location">${escHtml(a.location_name || 'Unknown')}</span>
+        <span class="alert-card-time">${formatTime(a.created_at)}</span>
+      </div>
+      <div class="alert-card-transcript">${escHtml((a.transcript || 'No transcript').substring(0, 60))}</div>
+      <div class="alert-card-status ${a.status}">${a.status}</div>
+    </div>
+  `).join('');
+}
+
+// ── Select alert → load detail ─────────────────────────────────────────────────
+async function selectAlert(alertId) {
+  selectedId = alertId;
+  renderAlertList();
+
+  // Find from local cache first for instant render
+  const cached = alerts.find(a => a.alert_id === alertId);
+  if (cached) renderDetail(cached);
+
+  // Then fetch full detail from API
+  try {
+    const res  = await fetch(`${API}/api/alerts/${alertId}`);
+    const data = await res.json();
+    renderDetail(data);
+  } catch(_) {}
+}
+
+function renderDetail(alert) {
+  const score   = alert.threat_score ?? 0;
+  const scoreW  = Math.round(score * 100);
+  const sev     = alert.severity || 'low';
+  const isRes   = alert.status === 'resolved';
+  const transcript = alert.transcript || 'No speech detected in this clip.';
+
+  document.getElementById('detail-panel').innerHTML = `
+    <div class="detail-header">
+      <div>
+        <div class="detail-title">${escHtml(alert.location_name || 'Unknown Location')}</div>
+        <div class="detail-meta">
+          <span class="sev-badge ${sev}">${sev}</span>
+          <span class="meta-pill">${escHtml(alert.classification || '—')}</span>
+          <span class="meta-pill">${formatDateTime(alert.created_at)}</span>
+          ${isRes ? `<span class="meta-pill" style="color:var(--teal)">✓ resolved</span>` : ''}
+        </div>
+      </div>
+    </div>
+
+    <div class="detail-grid">
+      <div class="detail-field">
+        <div class="field-label">Threat Score</div>
+        <div class="field-value" style="color:var(--${sev === 'high' ? 'red' : sev === 'medium' ? 'amber' : 'teal'})">${(score * 100).toFixed(1)}%</div>
+      </div>
+      <div class="detail-field">
+        <div class="field-label">Event ID</div>
+        <div class="field-value" style="font-size:11px;color:var(--text-muted)">${(alert.event_id || '').substring(0,8)}…</div>
+      </div>
+    </div>
+
+    <div class="score-section">
+      <div class="score-label">Confidence</div>
+      <div class="score-row">
+        <div class="score-bar-track">
+          <div class="score-bar-fill ${sev}" style="width:${scoreW}%"></div>
+        </div>
+        <div class="score-value">${scoreW}%</div>
+      </div>
+    </div>
+
+    <div class="transcript-box">
+      <div class="box-label">Transcript</div>
+      <div class="transcript-text">${highlightKeywords(transcript)}</div>
+    </div>
+
+    ${alert.audio_url ? `
+    <div class="audio-section">
+      <div class="audio-player">
+        <button class="audio-play-btn" onclick="toggleAudio('${API}${alert.audio_url}', this)" title="Play audio">
+          <svg id="play-icon" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+            <path d="M11.596 8.697L4.604 12.5A.5.5 0 0 1 4 12V4a.5.5 0 0 1 .604-.5l6.992 3.803a.5.5 0 0 1 0 .894z"/>
+          </svg>
+        </button>
+        <div class="audio-waveform" id="waveform">
+          ${Array.from({length: 40}, (_,i) =>
+            `<div class="wave-bar" style="height:${8 + Math.sin(i * 0.7) * 8 + Math.random() * 8}px"></div>`
+          ).join('')}
+        </div>
+        <div class="audio-duration" id="audio-time">0:00</div>
+      </div>
+    </div>
+    ` : ''}
+
+    <div class="resolve-section ${isRes ? 'resolved' : ''}" id="resolve-section">
+      ${isRes ? `
+        <div class="resolved-msg">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M20 6L9 17l-5-5"/>
+          </svg>
+          Resolved — ${escHtml(alert.resolution_notes || '')}
+        </div>
+      ` : `
+        <div class="resolve-title">Resolve Incident</div>
+        <textarea class="resolve-notes" id="resolve-notes"
+          placeholder="Describe your investigation and outcome…"></textarea>
+        <button class="resolve-btn" onclick="resolveAlert('${alert.alert_id}')">
+          Mark Resolved
+        </button>
+      `}
+    </div>
+  `;
+}
+
+// ── Audio playback ─────────────────────────────────────────────────────────────
+async function toggleAudio(url, btn) {
+  if (currentAudio && !currentAudio.paused) {
+    currentAudio.pause();
+    btn.innerHTML = `<svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M11.596 8.697L4.604 12.5A.5.5 0 0 1 4 12V4a.5.5 0 0 1 .604-.5l6.992 3.803a.5.5 0 0 1 0 .894z"/></svg>`;
+    return;
+  }
+  if (!currentAudio || currentAudio.src !== url) {
+    currentAudio = new Audio(url);
+    currentAudio.ontimeupdate = () => {
+      const t = currentAudio.currentTime;
+      document.getElementById('audio-time').textContent =
+        `${Math.floor(t/60)}:${String(Math.floor(t%60)).padStart(2,'0')}`;
+    };
+    currentAudio.onended = () => {
+      btn.innerHTML = `<svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M11.596 8.697L4.604 12.5A.5.5 0 0 1 4 12V4a.5.5 0 0 1 .604-.5l6.992 3.803a.5.5 0 0 1 0 .894z"/></svg>`;
+      document.getElementById('audio-time').textContent = '0:00';
+    };
+  }
+  await currentAudio.play();
+  btn.innerHTML = `<svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M5.5 3.5A1.5 1.5 0 0 1 7 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5m5 0A1.5 1.5 0 0 1 12 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5"/></svg>`;
+}
+
+// ── Resolve alert ──────────────────────────────────────────────────────────────
+async function resolveAlert(alertId) {
+  const notes = document.getElementById('resolve-notes')?.value?.trim();
+  if (!notes) { alert('Please enter resolution notes.'); return; }
+
+  const btn = document.querySelector('.resolve-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+
+  try {
+    const res = await fetch(`${API}/api/alerts/${alertId}/resolve`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resolution_notes: notes }),
+    });
+    if (res.ok) {
+      const a = alerts.find(x => x.alert_id === alertId);
+      if (a) { a.status = 'resolved'; a.resolution_notes = notes; }
+      await loadAlerts();
+      await loadStats();
+      selectAlert(alertId);
+    }
+  } catch(e) {
+    btn.disabled = false; btn.textContent = 'Mark Resolved';
+  }
+}
+
+// ── Analytics tab ──────────────────────────────────────────────────────────────
+async function loadAnalytics() {
+  const panel = document.getElementById('analytics-content');
+  try {
+    const [hotRes, sevRes, trendRes] = await Promise.all([
+      fetch(`${API}/api/analytics/hotspots`),
+      fetch(`${API}/api/analytics/severity-breakdown`),
+      fetch(`${API}/api/analytics/trends?days=14`),
+    ]);
+    const hot   = await hotRes.json();
+    const sev   = await sevRes.json();
+    const trend = await trendRes.json();
+
+    const maxCount = Math.max(...(hot.hotspots || []).map(h => h.count), 1);
+    const hotspotHTML = (hot.hotspots || []).map(h => `
+      <div class="bar-row">
+        <div class="bar-label">${escHtml(h.location_name)}</div>
+        <div class="bar-track"><div class="bar-fill" style="width:${Math.round(h.count/maxCount*100)}%"></div></div>
+        <div class="bar-count">${h.count}</div>
+      </div>
+    `).join('') || '<div style="color:var(--text-muted);font-size:12px">No incidents yet</div>';
+
+    const breakdown = sev.breakdown || [];
+    const sevColors = { high: '#f85149', medium: '#f0a500', low: '#39d353' };
+    const sevTotal  = breakdown.reduce((s, r) => s + r.count, 0) || 1;
+    const legendHTML = breakdown.map(r => `
+      <div class="legend-item">
+        <div class="legend-dot" style="background:${sevColors[r.severity] || '#888'}"></div>
+        ${r.severity} — ${r.count} (${Math.round(r.count/sevTotal*100)}%)
+      </div>
+    `).join('');
+
+    // Simple SVG sparkline
+    const points = (trend.trend || []).slice(-14);
+    const maxVal = Math.max(...points.map(p => p.total), 1);
+    const svgW   = 240; const svgH = 50;
+    const sparkPts = points.map((p, i) => {
+      const x = (i / Math.max(points.length - 1, 1)) * svgW;
+      const y = svgH - (p.total / maxVal) * (svgH - 6) - 3;
+      return `${x},${y}`;
+    }).join(' ');
+
+    panel.innerHTML = `
+      <div class="chart-card">
+        <div class="chart-title">High-Risk Locations (Top 5)</div>
+        <div class="bar-chart">${hotspotHTML}</div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Severity Distribution</div>
+        <div class="donut-row">
+          <div class="donut-legend">${legendHTML || '<div style="color:var(--text-muted);font-size:12px">No data</div>'}</div>
+        </div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">14-Day Incident Trend</div>
+        ${points.length > 1 ? `
+          <svg class="sparkline" viewBox="0 0 ${svgW} ${svgH}" preserveAspectRatio="none">
+            <polyline points="${sparkPts}" fill="none" stroke="var(--amber)" stroke-width="1.5" stroke-linejoin="round"/>
+          </svg>
+        ` : '<div style="color:var(--text-muted);font-size:12px">Not enough data</div>'}
+      </div>
+    `;
+  } catch(_) {
+    panel.innerHTML = '<div class="empty-state">Could not load analytics</div>';
+  }
+}
+
+// ── Tab switching ──────────────────────────────────────────────────────────────
+function switchTab(tab, el) {
+  document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('tab-alerts').style.display    = tab === 'alerts'    ? 'flex' : 'none';
+  document.getElementById('tab-analytics').style.display = tab === 'analytics' ? 'block' : 'none';
+  if (tab === 'analytics') loadAnalytics();
+}
+
+// ── Filter ─────────────────────────────────────────────────────────────────────
+function setFilter(val, el) {
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  if (['active','resolved','all'].includes(val)) { filterStatus = val; filterSev = null; }
+  else { filterSev = val; filterStatus = 'all'; }
+  loadAlerts();
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+const KEYWORDS = ['bodoh','babi','sial','mati','pergi mampus','bangang','stupid','loser','shut up','kill','hurt','go die'];
+function highlightKeywords(text) {
+  let t = escHtml(text);
+  KEYWORDS.forEach(k => {
+    const re = new RegExp(`(${k})`, 'gi');
+    t = t.replace(re, '<span class="keyword-hit">$1</span>');
+  });
+  return t;
+}
+
+function formatTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatDateTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────────
+connectWS();
+loadAlerts();
+loadStats();
+setInterval(loadAlerts, 30000);
+setInterval(loadStats,  15000);
+</script>
+</body>
+</html>

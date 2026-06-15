@@ -1,0 +1,39 @@
+# S.A.M.S. — Lim Xin Hui's modules
+# Install: pip install -r requirements.txt
+
+# Web framework
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+python-multipart==0.0.9
+
+# Module 1: Speech Detection & Audio Capture
+librosa==0.10.1
+soundfile==0.12.1
+numpy==1.26.4
+
+# Module 2: Cloud Processing & AI Analysis
+# STT — Groq API (free, no credit card, Whisper Large v3)
+groq==0.9.0
+
+# NLP Threat Classifier (free, runs locally, multilingual)
+transformers==4.41.0
+torch==2.3.0
+sentencepiece==0.2.0
+
+# Module 3 & 4: Reporting + Dashboard
+sqlalchemy==2.0.30
+websockets==12.0
+
+# Config + utils
+pydantic==2.7.1
+pydantic-settings==2.2.1
+python-dotenv==1.0.1
+
+# Auth — password hashing for seeded users / login
+passlib[bcrypt]==1.7.4
+bcrypt==4.1.3
+
+# Testing
+pytest==8.2.0
+pytest-asyncio==0.23.7
+httpx==0.27.0
