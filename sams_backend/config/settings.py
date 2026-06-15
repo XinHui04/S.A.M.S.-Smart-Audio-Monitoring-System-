@@ -31,6 +31,17 @@ class Settings(BaseSettings):
     # Module 4 — Main Computer Monitoring System
     websocket_ping_interval: int = 30
 
+    # Module 4 — MQTT publisher (real-time alert fan-out; Figs 4.1/4.2)
+    # Opt-in: leave mqtt_enabled False to run without a broker.
+    mqtt_enabled:     bool = False
+    mqtt_broker_host: str  = "localhost"
+    mqtt_broker_port: int  = 1883
+    mqtt_topic:       str  = "sams/alerts"
+    mqtt_username:    str  = ""
+    mqtt_password:    str  = ""
+    mqtt_use_tls:     bool = False
+    mqtt_qos:         int  = 1
+
     class Config:
         env_file = ".env"
         case_sensitive = False

@@ -20,7 +20,7 @@ from config.settings import get_settings
 from api.events    import router as events_router
 from api.alerts    import router as alerts_router
 from api.analytics import router as analytics_router
-from api.dependencies import get_ws_manager
+from api.dependencies import get_ws_manager, get_mqtt
 
 logging.basicConfig(
     level   = logging.INFO,
@@ -36,7 +36,10 @@ async def lifespan(app: FastAPI):
     logger.info(f"STT  : Groq Whisper Large v3 ({'API key set' if settings.groq_api_key else 'NO API KEY — transcription disabled'})")
     logger.info(f"NLP  : {settings.nlp_model}")
     logger.info(f"Threshold : {settings.threat_score_threshold}")
+    logger.info(f"MQTT : {'enabled — ' + settings.mqtt_broker_host + ':' + str(settings.mqtt_broker_port) + ' topic ' + settings.mqtt_topic if settings.mqtt_enabled else 'disabled'}")
+    get_mqtt().connect()
     yield
+    get_mqtt().disconnect()
     logger.info("=== S.A.M.S. Cloud Backend stopped ===")
 
 

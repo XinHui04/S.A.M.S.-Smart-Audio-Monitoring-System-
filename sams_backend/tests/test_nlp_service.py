@@ -7,15 +7,15 @@ Run with:
 """
 import pytest
 import asyncio
-from services.nlp_service import NLPThreatClassifier
+from services.nlp_service import NLPService
 
 
 @pytest.fixture
 def classifier():
-    # Use keyword-only mode for fast tests (no model download needed)
-    clf = NLPThreatClassifier(threshold=0.75)
-    # Monkey-patch _load_model to raise so we test keyword fallback path
-    clf._pipeline = None
+    # Keyword-only mode for fast, offline tests: stub the transformer layer so
+    # no model is downloaded — exercises the keyword + classification logic.
+    clf = NLPService(threshold=0.75)
+    clf._transformer_score = lambda text: (0.0, "model_unavailable")
     return clf
 
 
@@ -55,12 +55,13 @@ async def test_empty_transcript(classifier):
 @pytest.mark.asyncio
 async def test_severity_levels(classifier):
     """Test that severity maps correctly to score bands."""
-    # Override threat_score directly by testing the _classify method
-    clf = NLPThreatClassifier()
+    # Override threat_score directly by testing the _classify method.
+    # _classify(base_score, keywords, text) -> (classification, severity, score)
+    clf = NLPService()
 
-    _, sev_high   = clf._classify(0.90, ["go die"])
-    _, sev_medium = clf._classify(0.65, [])
-    _, sev_low    = clf._classify(0.30, [])
+    _, sev_high,   _ = clf._classify(0.90, ["go die"], "go die")
+    _, sev_medium, _ = clf._classify(0.65, [], "ok")
+    _, sev_low,    _ = clf._classify(0.30, [], "ok")
 
     assert sev_high   == "high"
     assert sev_medium == "medium"

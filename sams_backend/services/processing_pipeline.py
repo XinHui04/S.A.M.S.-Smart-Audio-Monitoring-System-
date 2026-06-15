@@ -58,12 +58,14 @@ class ProcessingPipeline:
         stt:           STTService,
         nlp:           NLPService,
         websocket_mgr,                      # WebSocketManager injected at runtime
+        mqtt          = None,               # MqttService injected at runtime (optional)
         threshold:     float = 0.75,
     ):
         self.audio_capture = audio_capture
         self.stt           = stt
         self.nlp           = nlp
         self.ws            = websocket_mgr
+        self.mqtt          = mqtt
         self.threshold     = threshold
 
     async def process(
@@ -201,6 +203,20 @@ class ProcessingPipeline:
                 audio_url      = f"/api/events/{event.event_id}/audio",
                 timestamp      = event.timestamp.isoformat(),
             )
+
+            # ── MODULE 4: MQTT fan-out to external subscribers (Figs 4.1/4.2) ──
+            if self.mqtt:
+                self.mqtt.publish_alert(
+                    alert_id       = alert.alert_id,
+                    event_id       = event.event_id,
+                    location_name  = location_name,
+                    severity       = threat.severity_level,
+                    threat_score   = threat.threat_score,
+                    classification = threat.classification,
+                    transcript     = transcript_text,
+                    audio_url      = f"/api/events/{event.event_id}/audio",
+                    timestamp      = event.timestamp.isoformat(),
+                )
 
             logger.warning(
                 f"ALERT FIRED | severity={threat.severity_level} | "
