@@ -84,7 +84,7 @@ def seed():
     print(f"  {len(USERS)} users ready.")
 
     db.close()
-    print("\n✅ Database seeded successfully!")
+    print("\n[OK] Database seeded successfully!")
     print(f"   DB path : {settings.sqlite_db_path}")
     print(f"   Admin   : admin@school.edu.my / Admin@1234")
 

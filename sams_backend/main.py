@@ -33,7 +33,7 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("=== S.A.M.S. Cloud Backend starting ===")
-    logger.info(f"STT  : Whisper {settings.whisper_model_size}")
+    logger.info(f"STT  : Groq Whisper Large v3 ({'API key set' if settings.groq_api_key else 'NO API KEY — transcription disabled'})")
     logger.info(f"NLP  : {settings.nlp_model}")
     logger.info(f"Threshold : {settings.threat_score_threshold}")
     yield
