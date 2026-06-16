@@ -718,6 +718,10 @@ function renderDetail(alert) {
   const sev     = alert.severity || 'low';
   const isRes   = alert.status === 'resolved';
   const transcript = alert.transcript || 'No speech detected in this clip.';
+  const fmt = (v, unit, dp = 1) => (v === null || v === undefined) ? '—' : Number(v).toFixed(dp) + unit;
+  const intensityTxt = fmt(alert.intensity, ' dB', 1);
+  const pitchTxt     = fmt(alert.pitch, ' Hz', 0);
+  const edgeConfTxt  = (alert.edge_confidence === null || alert.edge_confidence === undefined) ? '—' : (alert.edge_confidence * 100).toFixed(0) + '%';
 
   document.getElementById('detail-panel').innerHTML = `
     <div class="detail-header">
@@ -740,6 +744,18 @@ function renderDetail(alert) {
       <div class="detail-field">
         <div class="field-label">Event ID</div>
         <div class="field-value" style="font-size:11px;color:var(--text-muted)">${(alert.event_id || '').substring(0,8)}…</div>
+      </div>
+      <div class="detail-field">
+        <div class="field-label">Intensity</div>
+        <div class="field-value">${intensityTxt}</div>
+      </div>
+      <div class="detail-field">
+        <div class="field-label">Pitch</div>
+        <div class="field-value">${pitchTxt}</div>
+      </div>
+      <div class="detail-field">
+        <div class="field-label">Edge Scream Conf</div>
+        <div class="field-value">${edgeConfTxt}</div>
       </div>
     </div>
 

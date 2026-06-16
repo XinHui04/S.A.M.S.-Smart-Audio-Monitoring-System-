@@ -10,6 +10,8 @@ python-multipart==0.0.9
 librosa==0.10.1
 soundfile==0.12.1
 numpy==1.26.4
+# librosa 0.10.1 imports pkg_resources, which setuptools>=81 removed
+setuptools<81
 
 # Module 2: Cloud Processing & AI Analysis
 # STT — Groq API (free, no credit card, Whisper Large v3)

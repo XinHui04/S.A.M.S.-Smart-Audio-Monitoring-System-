@@ -21,8 +21,11 @@ class Settings(BaseSettings):
     # STT: Groq API (free — https://console.groq.com)
     groq_api_key: str = ""
 
-    # NLP: XLM-RoBERTa (free, runs locally)
-    nlp_model:              str   = "cardiffnlp/twitter-xlm-roberta-base-offensive"
+    # NLP: RoBERTa offensive classifier (free, runs locally). Labels: offensive / non-offensive.
+    # NOTE: the previously-configured "cardiffnlp/twitter-xlm-roberta-base-offensive" does not
+    # exist on HuggingFace (404/401); this is the real Cardiff offensive model. The Malay/Manglish
+    # keyword layer in nlp_service.py supplements it for local slang.
+    nlp_model:              str   = "cardiffnlp/twitter-roberta-base-offensive"
     threat_score_threshold: float = 0.75
 
     # Module 3 — Reporting & Analytics

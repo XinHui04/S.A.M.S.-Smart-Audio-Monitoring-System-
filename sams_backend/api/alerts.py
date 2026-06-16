@@ -40,6 +40,9 @@ def _enrich_alert(alert: Alert, db: Session) -> dict:
         "transcript":     transcript.text if transcript else None,
         "threat_score":   analysis.threat_score if analysis else None,
         "classification": analysis.classification if analysis else None,
+        "intensity":      event.intensity if event else None,
+        "pitch":          event.pitch if event else None,
+        "edge_confidence": event.confidence_score if event else None,
         "audio_url":      f"/api/events/{alert.event_id}/audio" if clip else None,
     }
 
