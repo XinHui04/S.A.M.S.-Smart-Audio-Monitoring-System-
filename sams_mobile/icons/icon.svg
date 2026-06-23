@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="S.A.M.S. Teacher Alerts">
+  <rect width="512" height="512" rx="112" fill="#0d1117"/>
+  <g fill="none" stroke="#f0a500" stroke-width="28" stroke-linecap="round" stroke-linejoin="round">
+    <!-- microphone capsule -->
+    <rect x="208" y="120" width="96" height="176" rx="48" fill="#f0a500" stroke="none"/>
+    <!-- pickup arc -->
+    <path d="M160 248v16a96 96 0 0 0 192 0v-16"/>
+    <!-- stand -->
+    <path d="M256 360v48M208 408h96"/>
+  </g>
+</svg>
