@@ -1,6 +1,5 @@
 """
 main.py — S.A.M.S. Cloud Backend
-Lim Xin Hui | TARUMT FYP 2025/26
 
 Modules covered:
   1. Speech Detection & Audio Capture  → POST /api/events/audio

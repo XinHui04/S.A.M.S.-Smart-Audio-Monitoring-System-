@@ -32,7 +32,6 @@ sams_final/
 │   ├── index.html · app.js · styles.css
 │   ├── manifest.webmanifest · service-worker.js
 │   └── icons/
-├── PROGRESS.md                  Milestone progress report
 └── README.md                    You are here
 ```
 
@@ -303,5 +302,3 @@ MQTT sams/alerts            same alert payload (when MQTT_ENABLED=true)
   relies on a keyword booster. Multilingual XLM-R model swap is planned.
 - **Edge integration:** real ESP32-C3 + INMP441 device (teammate's module) POSTs
   to `/api/events/audio` — the backend already auto-registers devices.
-
-See [PROGRESS.md](PROGRESS.md) for the full milestone report.

@@ -1,6 +1,5 @@
 """
 config/settings.py
-Configuration for Lim Xin Hui's 4 modules.
 """
 from pydantic_settings import BaseSettings
 from functools import lru_cache

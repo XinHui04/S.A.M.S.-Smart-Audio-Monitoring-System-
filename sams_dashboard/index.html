@@ -5,13 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>S.A.M.S. — Smart Audio Monitoring System</title>
 <style>
-  /* ── Design tokens ──────────────────────────────────────────────────────────
-     Palette built around the urgency of security monitoring:
-     Deep navy background — authority, focus, reduces eye strain on long shifts
-     Amber as primary accent — alert colour that isn't aggressive red
-     Severity colours: red(high) / amber(medium) / teal(low)
-     Mono typeface for data, sans for UI chrome
-  ─────────────────────────────────────────────────────────────────────────── */
   :root {
     --bg-base:       #0d1117;
     --bg-surface:    #161b22;
@@ -551,7 +544,7 @@ function updateClock() {
 setInterval(updateClock, 1000);
 updateClock();
 
-// ── WebSocket (Module 4 — real-time push) ─────────────────────────────────────
+// ── WebSocket ─────────────────────────────────────
 function connectWS() {
   ws = new WebSocket(WS_URL);
 
