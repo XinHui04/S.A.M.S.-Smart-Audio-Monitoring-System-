@@ -36,6 +36,7 @@ Exact flow matching Figure 4.1 System Architecture Diagram:
   └──────────────────────────────────────────────────────┘
 """
 import logging
+import os
 import uuid
 from datetime import datetime
 
@@ -60,6 +61,8 @@ class ProcessingPipeline:
         websocket_mgr,                      # WebSocketManager injected at runtime
         mqtt          = None,               # MqttService injected at runtime (optional)
         threshold:     float = 0.75,
+        audio_storage = None,               # AudioStorageService injected at runtime
+        delete_local_after_upload: bool = True,
     ):
         self.audio_capture = audio_capture
         self.stt           = stt
@@ -67,6 +70,8 @@ class ProcessingPipeline:
         self.ws            = websocket_mgr
         self.mqtt          = mqtt
         self.threshold     = threshold
+        self.audio_storage = audio_storage
+        self.delete_local_after_upload = delete_local_after_upload
 
     async def process(
         self,
@@ -100,6 +105,13 @@ class ProcessingPipeline:
         except ValueError as e:
             raise ValueError(f"Audio capture failed: {e}")
 
+        # Persist the durable copy to Audio Object Storage (Supabase Storage when
+        # configured, else local disk). The local working file is retained for STT.
+        if self.audio_storage is not None:
+            file_ref = self.audio_storage.persist(file_path, event_id)
+        else:
+            file_ref = file_path
+
         # Create Event record
         event = Event(
             event_id         = event_id,
@@ -117,7 +129,7 @@ class ProcessingPipeline:
         clip = AudioClip(
             clip_id   = str(uuid.uuid4()),
             event_id  = event.event_id,
-            file_path = file_path,
+            file_path = file_ref,
             duration  = duration,
         )
         db.add(clip)
@@ -127,6 +139,7 @@ class ProcessingPipeline:
         # If VAD found no speech → discard, no further processing
         if not speech_detected:
             logger.info(f"Event {event_id}: VAD found no speech — discarded.")
+            self._cleanup_local_working_copy(file_ref, file_path)
             return ProcessingResponse(
                 event_id    = event_id,
                 clip_id     = clip.clip_id,
@@ -145,6 +158,7 @@ class ProcessingPipeline:
 
         # Part A: STT
         stt_result      = await self.stt.transcribe(file_path)
+        self._cleanup_local_working_copy(file_ref, file_path)
         transcript_text = stt_result["text"]
         language        = stt_result["language"]
 
@@ -249,3 +263,20 @@ class ProcessingPipeline:
                 "Processed — below threat threshold"
             ),
         )
+
+    def _cleanup_local_working_copy(self, file_ref: str, local_path: str) -> None:
+        """
+        Remove the local working WAV once the durable copy lives remotely.
+        No-op for the local backend (where file_ref IS local_path) or when
+        DELETE_LOCAL_AFTER_UPLOAD is disabled.
+        """
+        if not self.audio_storage or not self.delete_local_after_upload:
+            return
+        if not self.audio_storage.is_remote(file_ref):
+            return
+        try:
+            if os.path.exists(local_path):
+                os.remove(local_path)
+                logger.info(f"Local working copy removed after upload: {local_path}")
+        except Exception as e:
+            logger.warning(f"Could not remove local working copy {local_path}: {e}")

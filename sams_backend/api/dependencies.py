@@ -12,17 +12,25 @@ from services.nlp_service import NLPService
 from services.processing_pipeline import ProcessingPipeline
 from services.websocket_manager import WebSocketManager
 from services.mqtt_service import MqttService
+from services.storage_service import AudioStorageService
 
 cfg = get_settings()
 
 # ── Singletons ────────────────────────────────────────────────────────────────
-_engine         = create_db_engine(cfg.sqlite_db_path)
+_engine         = create_db_engine(database_url=cfg.database_url, sqlite_path=cfg.sqlite_db_path)
 _SessionFactory = get_session_factory(_engine)
 
 _audio_capture  = AudioCaptureService(
     storage_dir       = cfg.audio_storage_dir,
     vad_threshold     = cfg.vad_energy_threshold,
     max_duration_secs = cfg.max_audio_duration,
+)
+_audio_storage  = AudioStorageService(
+    backend      = cfg.storage_backend,
+    storage_dir  = cfg.audio_storage_dir,
+    supabase_url = cfg.supabase_url,
+    supabase_key = cfg.supabase_service_key,
+    bucket       = cfg.supabase_bucket,
 )
 _stt        = STTService(api_key=cfg.groq_api_key)   # Groq free API
 _nlp        = NLPService(model_name=cfg.nlp_model, threshold=cfg.threat_score_threshold)
@@ -45,6 +53,8 @@ _pipeline = ProcessingPipeline(
     websocket_mgr = _ws_manager,
     mqtt          = _mqtt,
     threshold     = cfg.threat_score_threshold,
+    audio_storage = _audio_storage,
+    delete_local_after_upload = cfg.delete_local_after_upload,
 )
 
 # ── Dependency functions ──────────────────────────────────────────────────────
@@ -67,3 +77,6 @@ def get_mqtt() -> MqttService:
 
 def get_audio_capture() -> AudioCaptureService:
     return _audio_capture
+
+def get_audio_storage() -> AudioStorageService:
+    return _audio_storage

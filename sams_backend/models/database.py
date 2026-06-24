@@ -1,6 +1,6 @@
 """
 models/database.py
-SQLAlchemy models (SQLite for dev, swap to Firebase for production).
+SQLAlchemy models (local SQLite for dev/tests, Supabase Postgres for cloud via DATABASE_URL).
 Matches the ERD from your FYP report exactly.
 """
 from sqlalchemy import (
@@ -131,11 +131,29 @@ class Alert(Base):
 
 # ─── DB Engine setup ─────────────────────────────────────────────────────────
 
-def create_db_engine(db_path: str = "./sams_dev.db"):
-    engine = create_engine(
-        f"sqlite:///{db_path}",
-        connect_args={"check_same_thread": False}
-    )
+def resolve_database_url(database_url: str = "", sqlite_path: str = "./sams.db") -> str:
+    """
+    Returns the SQLAlchemy URL to use.
+    If database_url is set (e.g. a Supabase Postgres connection string) it wins;
+    otherwise we fall back to a local SQLite file for dev / offline / tests.
+    """
+    return database_url.strip() or f"sqlite:///{sqlite_path}"
+
+
+def create_db_engine(database_url: str = "", sqlite_path: str = "./sams.db"):
+    """
+    Build the engine for either Postgres (Supabase) or local SQLite.
+
+    The check_same_thread connect arg is SQLite-only and must NOT be passed to
+    Postgres. pool_pre_ping keeps pooled cloud connections healthy.
+    """
+    url = resolve_database_url(database_url, sqlite_path)
+
+    if url.startswith("sqlite"):
+        engine = create_engine(url, connect_args={"check_same_thread": False})
+    else:
+        engine = create_engine(url, pool_pre_ping=True)
+
     Base.metadata.create_all(engine)
     return engine
 

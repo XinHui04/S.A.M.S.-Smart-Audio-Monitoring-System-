@@ -11,14 +11,16 @@ POST /api/events/audio
 GET  /api/events/{event_id}/audio
   Dashboard calls this to stream the audio clip for playback.
 """
+import io
+import os
 import logging
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from models.database import Event, AudioClip
 from models.schemas import ProcessingResponse
-from api.dependencies import get_db, get_pipeline, get_audio_capture
+from api.dependencies import get_db, get_pipeline, get_audio_storage
 
 router = APIRouter(prefix="/api/events", tags=["Module 1+2 — Audio Ingestion"])
 logger = logging.getLogger(__name__)
@@ -74,9 +76,13 @@ async def receive_audio_event(
 async def stream_audio(
     event_id: str,
     db:       Session = Depends(get_db),
-    storage             = Depends(get_audio_capture),
+    storage             = Depends(get_audio_storage),
 ):
-    """Dashboard calls this to play back the audio for an incident."""
+    """Dashboard calls this to play back the audio for an incident.
+
+    Serves the clip from Supabase Storage when it was uploaded there, otherwise
+    streams the local file — transparent to the caller either way.
+    """
     event = db.query(Event).filter(Event.event_id == event_id).first()
     if not event:
         raise HTTPException(404, "Event not found")
@@ -85,6 +91,20 @@ async def stream_audio(
     if not clip or not clip.file_path:
         raise HTTPException(404, "Audio clip not found")
 
+    # Remote (Supabase) clip → fetch bytes and stream them through our endpoint.
+    if storage.is_remote(clip.file_path):
+        data = storage.get_bytes(clip.file_path)
+        if data is None:
+            raise HTTPException(404, "Audio clip not found")
+        return StreamingResponse(
+            io.BytesIO(data),
+            media_type = "audio/wav",
+            headers    = {"Content-Disposition": f'inline; filename="incident_{event_id}.wav"'},
+        )
+
+    # Local clip → serve straight off disk.
+    if not os.path.exists(clip.file_path):
+        raise HTTPException(404, "Audio clip not found")
     return FileResponse(
         clip.file_path,
         media_type = "audio/wav",

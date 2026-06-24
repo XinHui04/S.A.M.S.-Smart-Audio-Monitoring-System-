@@ -24,6 +24,11 @@ sentencepiece==0.2.0
 
 # Module 3 & 4: Reporting + Dashboard
 sqlalchemy==2.0.30
+
+# Module 3: Supabase cloud (Postgres + Storage). Optional — only used when DATABASE_URL /
+# STORAGE_BACKEND=supabase are configured; the app falls back to local SQLite + disk otherwise.
+psycopg2-binary==2.9.9
+supabase==2.5.0
 websockets==12.0
 
 # Module 4: MQTT publisher for real-time alert fan-out (Figs 4.1/4.2 of the report)
