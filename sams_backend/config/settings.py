@@ -1,6 +1,5 @@
 """
 config/settings.py
-Configuration for Lim Xin Hui's 4 modules.
 """
 from pydantic_settings import BaseSettings
 from functools import lru_cache
@@ -29,7 +28,17 @@ class Settings(BaseSettings):
     threat_score_threshold: float = 0.75
 
     # Module 3 — Reporting & Analytics
+    # Database: set DATABASE_URL to a Supabase Postgres connection string to use the cloud.
+    # When empty, the app falls back to the local SQLite file at SQLITE_DB_PATH (dev/offline/tests).
+    database_url:   str = ""
     sqlite_db_path: str = "./sams.db"
+
+    # Audio object storage: "local" keeps clips on disk (default); "supabase" uploads to a bucket.
+    storage_backend:           str  = "local"          # "local" | "supabase"
+    supabase_url:              str  = ""               # https://<ref>.supabase.co
+    supabase_service_key:      str  = ""               # service_role key — server-side ONLY, keep secret
+    supabase_bucket:           str  = "audio-clips"
+    delete_local_after_upload: bool = True             # privacy: remove the local working copy after upload
 
     # Module 4 — Main Computer Monitoring System
     websocket_ping_interval: int = 30

@@ -628,12 +628,16 @@ GET  /api/events/all
 GET  /api/events/stats
   Get event statistics for the dashboard
 """
+import io
+import os
 import logging
 import uuid
 import io
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Body
 from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from supabase import create_client, Client
@@ -641,6 +645,9 @@ from supabase import create_client, Client
 from models.database import Event, AudioClip, Device, Location, Alert
 from api.dependencies import get_db, get_ws_manager
 from services.scream_analyzer import ScreamAnalyzer
+from models.database import Event, AudioClip
+from models.schemas import ProcessingResponse
+from api.dependencies import get_db, get_pipeline, get_audio_storage
 
 router = APIRouter(prefix="/api/events", tags=["Module 1+2 — Audio Ingestion"])
 logger = logging.getLogger(__name__)
@@ -838,13 +845,22 @@ async def notify_supabase_upload(
 )
 async def stream_audio(
     event_id: str,
-    db: Session = Depends(get_db),
-):
-    """
-    Dashboard proxy media handler.
+    db:       Session = Depends(get_db),
+    storage             = Depends(get_audio_storage),
     
-    Downloads the matching resource from your private Supabase Storage infrastructure 
-    on-demand and pipes it straight down to the client media buffer elements securely.
+    #     db: Session = Depends(get_db),
+    # ):
+        
+    #     Dashboard proxy media handler.
+        
+    #     Downloads the matching resource from your private Supabase Storage infrastructure 
+    #     on-demand and pipes it straight down to the client media buffer elements securely.
+
+):
+    """Dashboard calls this to play back the audio for an incident.
+
+    Serves the clip from Supabase Storage when it was uploaded there, otherwise
+    streams the local file — transparent to the caller either way.
     """
     event = db.query(Event).filter(Event.event_id == event_id).first()
     if not event:
@@ -854,88 +870,110 @@ async def stream_audio(
     if not clip or not clip.file_path:
         raise HTTPException(404, "Associated AudioClip record context missing")
 
-    try:
-        # Pull stream map from cloud pipeline dynamically instead of seeking local OS partitions
-        audio_bytes = supabase_client.storage.from_(BUCKET_NAME).download(clip.file_path)
+    # Remote (Supabase) clip → fetch bytes and stream them through our endpoint.
+    if storage.is_remote(clip.file_path):
+        data = storage.get_bytes(clip.file_path)
+        if data is None:
+            raise HTTPException(404, "Audio clip not found")
         return StreamingResponse(
-            io.BytesIO(audio_bytes),
-            media_type="audio/wav",
-            headers={"Content-Disposition": f"attachment; filename=incident_{event_id}.wav"}
+            io.BytesIO(data),
+            media_type = "audio/wav",
+            headers    = {"Content-Disposition": f'inline; filename="incident_{event_id}.wav"'},
         )
-    except Exception as e:
-        logger.error(f"Failed pulling asset payload back for distribution: {e}")
-        raise HTTPException(500, f"Error gathering external tracking source content stream: {str(e)}")
+
+    # Local clip → serve straight off disk.
+    if not os.path.exists(clip.file_path):
+        raise HTTPException(404, "Audio clip not found")
+    return FileResponse(
+        clip.file_path,
+        media_type = "audio/wav",
+        filename   = f"incident_{event_id}.wav",
+    )
 
 
-@router.get(
-    "/all",
-    summary="Get all events for the Scream Alerts dashboard tab",
-)
-async def get_all_events(
-    limit: int = 100,
-    db: Session = Depends(get_db),
-):
-    """Returns all historic events from tracking database, ordered chronologically descending."""
-    try:
-        events = (
-            db.query(Event)
-            .order_by(desc(Event.timestamp))
-            .limit(limit)
-            .all()
-        )
+
+#     try:
+#         # Pull stream map from cloud pipeline dynamically instead of seeking local OS partitions
+#         audio_bytes = supabase_client.storage.from_(BUCKET_NAME).download(clip.file_path)
+#         return StreamingResponse(
+#             io.BytesIO(audio_bytes),
+#             media_type="audio/wav",
+#             headers={"Content-Disposition": f"attachment; filename=incident_{event_id}.wav"}
+#         )
+#     except Exception as e:
+#         logger.error(f"Failed pulling asset payload back for distribution: {e}")
+#         raise HTTPException(500, f"Error gathering external tracking source content stream: {str(e)}")
+
+
+# @router.get(
+#     "/all",
+#     summary="Get all events for the Scream Alerts dashboard tab",
+# )
+# async def get_all_events(
+#     limit: int = 100,
+#     db: Session = Depends(get_db),
+# ):
+#     """Returns all historic events from tracking database, ordered chronologically descending."""
+#     try:
+#         events = (
+#             db.query(Event)
+#             .order_by(desc(Event.timestamp))
+#             .limit(limit)
+#             .all()
+#         )
         
-        result = []
-        for event in events:
-            device = db.query(Device).filter(Device.device_id == event.device_id).first()
-            location_name = "Unknown"
-            location_id = "Unknown"
+#         result = []
+#         for event in events:
+#             device = db.query(Device).filter(Device.device_id == event.device_id).first()
+#             location_name = "Unknown"
+#             location_id = "Unknown"
             
-            if device and device.location_id:
-                location_id = device.location_id
-                location = db.query(Location).filter(Location.location_id == device.location_id).first()
-                if location:
-                    location_name = location.location_name
+#             if device and device.location_id:
+#                 location_id = device.location_id
+#                 location = db.query(Location).filter(Location.location_id == device.location_id).first()
+#                 if location:
+#                     location_name = location.location_name
             
-            result.append({
-                "id": event.event_id,
-                "device_id": event.device_id or "Unknown",
-                "location_id": location_id,
-                "location_name": location_name,
-                "timestamp": event.timestamp.isoformat() if event.timestamp else None,
-                "intensity": event.intensity or 0,
-                "pitch": event.pitch or 0,
-                "confidence_score": event.confidence_score or 0,
-            })
+#             result.append({
+#                 "id": event.event_id,
+#                 "device_id": event.device_id or "Unknown",
+#                 "location_id": location_id,
+#                 "location_name": location_name,
+#                 "timestamp": event.timestamp.isoformat() if event.timestamp else None,
+#                 "intensity": event.intensity or 0,
+#                 "pitch": event.pitch or 0,
+#                 "confidence_score": event.confidence_score or 0,
+#             })
         
-        return {"events": result}
+#         return {"events": result}
         
-    except Exception as e:
-        logger.error(f"Error fetching all events: {e}")
-        return {"events": []}
+#     except Exception as e:
+#         logger.error(f"Error fetching all events: {e}")
+#         return {"events": []}
 
 
-@router.get(
-    "/stats",
-    summary="Get event statistics for the dashboard",
-)
-async def get_event_stats(
-    db: Session = Depends(get_db),
-):
-    """Calculates status overview metric counters for dashboard view displays."""
-    try:
-        total = db.query(Event).count()
-        high = db.query(Event).filter(Event.confidence_score > 0.7).count()
-        medium = db.query(Event).filter(Event.confidence_score > 0.4, Event.confidence_score <= 0.7).count()
-        low = db.query(Event).filter(Event.confidence_score <= 0.4).count()
-        screams = db.query(Event).filter(Event.confidence_score > 0.5).count()
+# @router.get(
+#     "/stats",
+#     summary="Get event statistics for the dashboard",
+# )
+# async def get_event_stats(
+#     db: Session = Depends(get_db),
+# ):
+#     """Calculates status overview metric counters for dashboard view displays."""
+#     try:
+#         total = db.query(Event).count()
+#         high = db.query(Event).filter(Event.confidence_score > 0.7).count()
+#         medium = db.query(Event).filter(Event.confidence_score > 0.4, Event.confidence_score <= 0.7).count()
+#         low = db.query(Event).filter(Event.confidence_score <= 0.4).count()
+#         screams = db.query(Event).filter(Event.confidence_score > 0.5).count()
         
-        return {
-            "total": total,
-            "high": high,
-            "medium": medium,
-            "low": low,
-            "screams": screams
-        }
-    except Exception as e:
-        logger.error(f"Error getting event stats: {e}")
-        return {"total": 0, "high": 0, "medium": 0, "low": 0, "screams": 0}
+#         return {
+#             "total": total,
+#             "high": high,
+#             "medium": medium,
+#             "low": low,
+#             "screams": screams
+#         }
+#     except Exception as e:
+#         logger.error(f"Error getting event stats: {e}")
+#         return {"total": 0, "high": 0, "medium": 0, "low": 0, "screams": 0}

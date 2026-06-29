@@ -1,6 +1,5 @@
 """
 main.py — S.A.M.S. Cloud Backend
-Lim Xin Hui | TARUMT FYP 2025/26
 
 Modules covered:
   1. Speech Detection & Audio Capture  → POST /api/events/audio
@@ -12,9 +11,11 @@ Run:  uvicorn main:app --reload --port 8000
 Docs: http://localhost:8000/docs
 """
 import logging
+from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from config.settings import get_settings
 from api.events    import router as events_router
@@ -86,3 +87,17 @@ async def dashboard_ws(websocket: WebSocket):
 @app.get("/health", tags=["System"])
 async def health():
     return {"status": "ok", "system": "S.A.M.S.", "version": "1.0.0"}
+
+
+# ── Teacher PWA (mobile) ──────────────────────────────────────────────────────
+# Serve the companion teacher app as static files so it is a real, installable
+# PWA over HTTP (service workers require http/https, not file://) and shares the
+# backend's origin (no CORS, same WebSocket host). Open on a phone at:
+#   http://<server-lan-ip>:8000/m/
+# Mounted last so it never shadows the /api or /ws routes above.
+_mobile_dir = Path(__file__).resolve().parent.parent / "sams_mobile"
+if _mobile_dir.is_dir():
+    app.mount("/m", StaticFiles(directory=str(_mobile_dir), html=True), name="mobile")
+    logger.info(f"Teacher PWA served at /m/  (dir: {_mobile_dir})")
+else:
+    logger.warning(f"Teacher PWA dir not found: {_mobile_dir} — /m/ not mounted")

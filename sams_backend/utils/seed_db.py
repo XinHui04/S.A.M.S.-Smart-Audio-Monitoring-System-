@@ -12,7 +12,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from models.database import create_db_engine, get_session_factory, Location, Device, User
+from models.database import create_db_engine, get_session_factory, resolve_database_url, Location, Device, User
 from utils.auth import hash_password
 from config.settings import get_settings
 
@@ -53,7 +53,7 @@ USERS = [
 
 
 def seed():
-    engine  = create_db_engine(settings.sqlite_db_path)
+    engine  = create_db_engine(database_url=settings.database_url, sqlite_path=settings.sqlite_db_path)
     Session = get_session_factory(engine)
     db      = Session()
 
@@ -84,8 +84,10 @@ def seed():
     print(f"  {len(USERS)} users ready.")
 
     db.close()
+    _url    = resolve_database_url(settings.database_url, settings.sqlite_db_path)
+    _target = "Supabase Postgres" if _url.startswith("postgresql") else f"SQLite ({settings.sqlite_db_path})"
     print("\n[OK] Database seeded successfully!")
-    print(f"   DB path : {settings.sqlite_db_path}")
+    print(f"   Target  : {_target}")
     print(f"   Admin   : admin@school.edu.my / Admin@1234")
 
 
