@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>S.A.M.S. — Smart Audio Monitoring System</title>
 <style>
-  /* ── Design tokens ────────────────────────────────────────────────────────── */
   :root {
     --bg-base:       #0d1117;
     --bg-surface:    #161b22;
@@ -26,11 +25,12 @@
     --teal-dim:      #0d2b18;
     --blue:          #58a6ff;
     --blue-dim:      #0d2149;
+    --purple:        #bc8cff;
+    --purple-dim:    #1e1040;
 
     --font-ui:   'Inter', system-ui, sans-serif;
     --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
-
-    --radius:  6px;
+    --radius:    6px;
     --radius-lg: 10px;
   }
 
@@ -47,25 +47,15 @@
     min-height: 100vh;
   }
 
-  /* ── Layout ──────────────────────────────────────────────────────────────── */
-  .app { 
-    display: grid; 
-    grid-template-rows: auto 1fr; 
-    height: 100vh; 
-    overflow: hidden;
-  }
+  /* ── Layout ─────────────────────────────────────────────────────────────── */
+  .app { display: grid; grid-template-rows: 56px 1fr; height: 100vh; }
 
-  /* ── Topbar ──────────────────────────────────────────────────────────────── */
+  /* ── Topbar ─────────────────────────────────────────────────────────────── */
   .topbar {
     background: var(--bg-surface);
     border-bottom: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    padding: 0 20px;
-    gap: 16px;
-    flex-shrink: 0;
-    height: 56px;
-    z-index: 100;
+    display: flex; align-items: center; padding: 0 20px; gap: 16px;
+    position: sticky; top: 0; z-index: 100;
   }
   .topbar-logo {
     display: flex; align-items: center; gap: 10px;
@@ -74,607 +64,232 @@
   .topbar-logo svg { color: var(--amber); }
   .topbar-logo span.sub { color: var(--text-secondary); font-weight: 400; font-size: 12px; }
   .topbar-spacer { flex: 1; }
-  .ws-badge {
-    display: flex; align-items: center; gap: 6px;
-    font-size: 12px; font-family: var(--font-mono);
-    color: var(--text-secondary);
-  }
-  .ws-dot {
-    width: 7px; height: 7px; border-radius: 50%;
-    background: var(--text-muted);
-    transition: background 0.3s;
-  }
+  .ws-badge { display: flex; align-items: center; gap: 6px; font-size: 12px; font-family: var(--font-mono); color: var(--text-secondary); }
+  .ws-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); transition: background 0.3s; }
   .ws-dot.connected { background: var(--teal); box-shadow: 0 0 6px var(--teal); }
   .ws-dot.error     { background: var(--red); }
-  .topbar-time {
-    font-family: var(--font-mono); font-size: 12px;
-    color: var(--text-secondary); min-width: 80px; text-align: right;
-  }
+  .topbar-time { font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); min-width: 80px; text-align: right; }
 
-  /* ── Navigation Tabs ────────────────────────────────────────────────────── */
+  /* ── Nav tabs (page switcher) ────────────────────────────────────────────── */
   .nav-tabs {
-    display: flex;
-    background: var(--bg-surface);
-    border-bottom: 1px solid var(--border);
-    padding: 0 20px;
-    gap: 4px;
-    flex-shrink: 0;
+    display: flex; gap: 2px; margin-left: 16px;
   }
   .nav-tab {
-    padding: 10px 16px;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-secondary);
-    cursor: pointer;
-    border-bottom: 2px solid transparent;
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 14px; border-radius: var(--radius);
+    font-size: 13px; font-weight: 500; cursor: pointer;
+    color: var(--text-secondary); border: none; background: none;
     transition: all 0.15s;
-    background: none;
-    border-top: none;
-    border-left: none;
-    border-right: none;
-    font-family: var(--font-ui);
   }
-  .nav-tab:hover {
-    color: var(--text-primary);
-    background: var(--bg-hover);
-  }
-  .nav-tab.active {
-    color: var(--amber);
-    border-bottom-color: var(--amber);
-  }
+  .nav-tab:hover  { background: var(--bg-hover); color: var(--text-primary); }
+  .nav-tab.active { background: var(--bg-elevated); color: var(--amber); }
   .nav-tab .badge {
-    background: var(--red-dim);
-    color: var(--red);
-    padding: 0 6px;
-    border-radius: 100px;
-    font-size: 10px;
-    margin-left: 4px;
+    font-size: 10px; font-family: var(--font-mono);
+    background: var(--red-dim); color: var(--red);
+    padding: 1px 5px; border-radius: 10px; font-weight: 600;
   }
+  .nav-tab.scream-tab .badge { background: var(--red-dim); color: var(--red); }
 
-  /* ── Main Container ────────────────────────────────────────────────────── */
-  .main-container {
-    display: flex;
-    flex: 1;
-    overflow: hidden;
-    min-height: 0;
-  }
-
-  /* ── Main content ────────────────────────────────────────────────────────── */
-  .main { 
-    display: grid; 
-    grid-template-columns: 300px 1fr; 
-    flex: 1;
-    overflow: hidden;
-    width: 100%;
-  }
+  /* ── Pages ───────────────────────────────────────────────────────────────── */
+  .page { display: none; height: 100%; }
+  .page.active { display: grid; grid-template-columns: 300px 1fr; overflow: hidden; height: 100%; }
 
   /* ── Sidebar ─────────────────────────────────────────────────────────────── */
   .sidebar {
     background: var(--bg-surface);
     border-right: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
+    display: flex; flex-direction: column; overflow: hidden;
   }
-  .sidebar-tabs {
-    display: flex;
-    border-bottom: 1px solid var(--border);
-    flex-shrink: 0;
-  }
+  .sidebar-tabs { display: flex; border-bottom: 1px solid var(--border); }
   .sidebar-tab {
     flex: 1; padding: 10px 0; text-align: center;
-    font-size: 12px; font-weight: 500;
-    color: var(--text-secondary);
-    cursor: pointer;
-    border-bottom: 2px solid transparent;
-    transition: all 0.15s;
+    font-size: 12px; font-weight: 500; color: var(--text-secondary);
+    cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s;
   }
   .sidebar-tab:hover  { color: var(--text-primary); background: var(--bg-hover); }
   .sidebar-tab.active { color: var(--amber); border-bottom-color: var(--amber); }
 
-  .sidebar-list { 
-    flex: 1; 
-    overflow-y: auto; 
-    padding: 8px;
-    min-height: 0;
+  .sidebar-header {
+    padding: 12px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
   }
+  .sidebar-header h3 {
+    font-size: 13px; font-weight: 500; color: var(--text-secondary);
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+
+  .sidebar-list { flex: 1; overflow-y: auto; padding: 8px; }
   .sidebar-list::-webkit-scrollbar { width: 4px; }
   .sidebar-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
-  /* ── Alert card in sidebar ───────────────────────────────────────────────── */
+  /* ── Filters ─────────────────────────────────────────────────────────────── */
+  .filters {
+    padding: 8px 12px; border-bottom: 1px solid var(--border-subtle);
+    display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+  }
+  .filter-btn {
+    font-size: 11px; padding: 3px 10px; border-radius: 100px;
+    border: 1px solid var(--border); background: none;
+    color: var(--text-secondary); cursor: pointer;
+    font-family: var(--font-mono); transition: all 0.15s;
+  }
+  .filter-btn:hover  { border-color: var(--amber); color: var(--amber); }
+  .filter-btn.active { background: var(--amber-dim); border-color: var(--amber); color: var(--amber); }
+  .filter-btn.scream-active { background: var(--red-dim); border-color: var(--red); color: var(--red); }
+
+  /* ── Alert / event cards ─────────────────────────────────────────────────── */
   .alert-card {
-    padding: 10px 12px;
-    border-radius: var(--radius);
-    border: 1px solid var(--border-subtle);
-    margin-bottom: 6px;
-    cursor: pointer;
-    transition: all 0.15s;
-    position: relative;
-    overflow: hidden;
+    padding: 10px 12px; border-radius: var(--radius);
+    border: 1px solid var(--border-subtle); margin-bottom: 6px;
+    cursor: pointer; transition: all 0.15s;
+    position: relative; overflow: hidden;
   }
   .alert-card::before {
-    content: '';
-    position: absolute; left: 0; top: 0; bottom: 0;
-    width: 3px;
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
   }
   .alert-card.high::before   { background: var(--red); }
   .alert-card.medium::before { background: var(--amber); }
   .alert-card.low::before    { background: var(--teal); }
+  .alert-card.no-scream::before { background: var(--text-muted); }
   .alert-card:hover  { background: var(--bg-hover); border-color: var(--border); }
-  .alert-card.active { background: var(--bg-elevated); border-color: var(--border); }
+  .alert-card.active-card { background: var(--bg-elevated); border-color: var(--border); }
 
-  .alert-card-top {
-    display: flex; align-items: center; gap: 8px; margin-bottom: 4px;
-  }
+  .alert-card-top { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
   .sev-badge {
     font-size: 10px; font-weight: 600; font-family: var(--font-mono);
-    padding: 1px 6px; border-radius: 3px; text-transform: uppercase;
+    padding: 1px 6px; border-radius: 3px; text-transform: uppercase; white-space: nowrap;
   }
-  .sev-badge.high   { background: var(--red-dim);   color: var(--red);   }
-  .sev-badge.medium { background: var(--amber-dim);  color: var(--amber); }
-  .sev-badge.low    { background: var(--teal-dim);   color: var(--teal);  }
+  .sev-badge.high     { background: var(--red-dim);    color: var(--red);   }
+  .sev-badge.medium   { background: var(--amber-dim);  color: var(--amber); }
+  .sev-badge.low      { background: var(--teal-dim);   color: var(--teal);  }
+  .sev-badge.no-scream{ background: var(--bg-elevated);color: var(--text-muted); }
+  .sev-badge.scream   { background: var(--red-dim);    color: var(--red);   }
 
-  .alert-card-location {
-    font-size: 13px; font-weight: 500; flex: 1;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .alert-card-time {
-    font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);
-  }
-  .alert-card-transcript {
-    font-size: 12px; color: var(--text-secondary);
-    overflow: hidden; text-overflow: ellipsis;
-    white-space: nowrap; margin-top: 2px;
-  }
-  .alert-card-status {
-    font-size: 10px; color: var(--text-muted); margin-top: 4px;
-    text-transform: uppercase; font-family: var(--font-mono); letter-spacing: 0.5px;
-  }
+  .alert-card-location { font-size: 13px; font-weight: 500; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .alert-card-time     { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+  .alert-card-transcript { font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+  .alert-card-status   { font-size: 10px; color: var(--text-muted); margin-top: 4px; text-transform: uppercase; font-family: var(--font-mono); letter-spacing: 0.5px; }
   .alert-card-status.resolved { color: var(--teal); }
+  .alert-card-details  { display: flex; gap: 10px; font-size: 11px; color: var(--text-muted); margin-top: 4px; font-family: var(--font-mono); }
 
   /* ── Detail panel ────────────────────────────────────────────────────────── */
-  .detail { 
-    display: flex; 
-    flex-direction: column; 
-    overflow: hidden;
-    flex: 1;
-    min-height: 0;
-  }
-
+  .detail { display: flex; flex-direction: column; overflow: hidden; }
   .detail-empty {
-    flex: 1; 
-    display: flex; 
-    flex-direction: column;
-    align-items: center; 
-    justify-content: center;
-    color: var(--text-muted); 
-    gap: 12px;
-    min-height: 200px;
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    color: var(--text-muted); gap: 12px;
   }
   .detail-empty svg { opacity: 0.3; }
   .detail-empty p   { font-size: 13px; }
 
   /* ── Stats strip ─────────────────────────────────────────────────────────── */
-  .stats-strip {
-    display: grid; 
-    grid-template-columns: repeat(4, 1fr);
-    gap: 1px; 
-    background: var(--border);
-    border-bottom: 1px solid var(--border);
-    flex-shrink: 0;
-  }
-  .stat-cell {
-    background: var(--bg-surface);
-    padding: 12px 16px;
-    display: flex; 
-    flex-direction: column; 
-    gap: 2px;
-  }
-  .stat-label { 
-    font-size: 11px; 
-    color: var(--text-muted); 
-    text-transform: uppercase; 
-    letter-spacing: 0.5px; 
-  }
-  .stat-value { 
-    font-size: 22px; 
-    font-weight: 600; 
-    font-family: var(--font-mono); 
-  }
+  .stats-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--border); border-bottom: 1px solid var(--border); }
+  .stat-cell   { background: var(--bg-surface); padding: 12px 16px; display: flex; flex-direction: column; gap: 2px; }
+  .stat-label  { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-value  { font-size: 22px; font-weight: 600; font-family: var(--font-mono); }
   .stat-value.red    { color: var(--red);   }
   .stat-value.amber  { color: var(--amber); }
   .stat-value.teal   { color: var(--teal);  }
   .stat-value.blue   { color: var(--blue);  }
+  .stat-value.purple { color: var(--purple);}
 
   /* ── Detail content ──────────────────────────────────────────────────────── */
-  .detail-content {
-    flex: 1; 
-    overflow-y: auto; 
-    padding: 20px;
-    min-height: 0;
-  }
+  .detail-content { flex: 1; overflow-y: auto; padding: 20px; }
   .detail-content::-webkit-scrollbar { width: 4px; }
   .detail-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
-  .detail-header {
-    display: flex; 
-    align-items: flex-start;
-    justify-content: space-between; 
-    gap: 16px;
-    margin-bottom: 20px;
-    padding-bottom: 16px;
-    border-bottom: 1px solid var(--border-subtle);
-  }
-  .detail-title { font-size: 18px; font-weight: 600; }
-  .detail-meta  { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
-  .meta-pill {
-    font-size: 11px; 
-    font-family: var(--font-mono);
-    padding: 2px 8px; 
-    border-radius: 100px;
-    background: var(--bg-elevated); 
-    border: 1px solid var(--border);
-    color: var(--text-secondary);
-  }
+  .detail-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--border-subtle); }
+  .detail-title  { font-size: 18px; font-weight: 600; }
+  .detail-meta   { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+  .meta-pill     { font-size: 11px; font-family: var(--font-mono); padding: 2px 8px; border-radius: 100px; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-secondary); }
 
   /* ── Score bar ───────────────────────────────────────────────────────────── */
   .score-section { margin-bottom: 20px; }
-  .score-label {
-    font-size: 11px; 
-    color: var(--text-muted);
-    text-transform: uppercase; 
-    letter-spacing: 0.5px; 
-    margin-bottom: 6px;
-  }
-  .score-row { display: flex; align-items: center; gap: 12px; }
-  .score-bar-track {
-    flex: 1; 
-    height: 6px; 
-    background: var(--bg-elevated);
-    border-radius: 3px; 
-    overflow: hidden;
-  }
-  .score-bar-fill {
-    height: 100%; 
-    border-radius: 3px;
-    transition: width 0.6s cubic-bezier(0.4,0,0.2,1);
-  }
+  .score-label   { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+  .score-row     { display: flex; align-items: center; gap: 12px; }
+  .score-bar-track { flex: 1; height: 6px; background: var(--bg-elevated); border-radius: 3px; overflow: hidden; }
+  .score-bar-fill  { height: 100%; border-radius: 3px; transition: width 0.6s cubic-bezier(0.4,0,0.2,1); }
   .score-bar-fill.high   { background: var(--red);   }
   .score-bar-fill.medium { background: var(--amber);  }
   .score-bar-fill.low    { background: var(--teal);   }
-  .score-value {
-    font-family: var(--font-mono); 
-    font-size: 14px; 
-    font-weight: 500;
-    min-width: 40px; 
-    text-align: right;
-  }
+  .score-bar-fill.purple { background: var(--purple); }
+  .score-value   { font-family: var(--font-mono); font-size: 14px; font-weight: 500; min-width: 40px; text-align: right; }
 
   /* ── Transcript box ──────────────────────────────────────────────────────── */
   .transcript-box {
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: 14px 16px;
-    font-size: 14px; 
-    line-height: 1.7;
-    margin-bottom: 16px;
-    position: relative;
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); padding: 14px 16px;
+    font-size: 14px; line-height: 1.7; margin-bottom: 16px;
   }
-  .transcript-box .box-label {
-    font-size: 10px; 
-    font-family: var(--font-mono);
-    color: var(--text-muted); 
-    text-transform: uppercase;
-    letter-spacing: 0.5px; 
-    margin-bottom: 6px;
-  }
+  .box-label    { font-size: 10px; font-family: var(--font-mono); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
   .transcript-text { color: var(--text-primary); }
-  .keyword-hit {
-    background: var(--amber-dim);
-    color: var(--amber);
-    border-radius: 3px;
-    padding: 0 3px;
-  }
+  .keyword-hit  { background: var(--amber-dim); color: var(--amber); border-radius: 3px; padding: 0 3px; }
 
   /* ── Audio player ────────────────────────────────────────────────────────── */
   .audio-section { margin-bottom: 16px; }
-  .audio-player {
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: 12px 16px;
-    display: flex; 
-    align-items: center; 
-    gap: 12px;
-  }
-  .audio-play-btn {
-    width: 36px; 
-    height: 36px; 
-    border-radius: 50%;
-    background: var(--amber); 
-    border: none; 
-    cursor: pointer;
-    display: flex; 
-    align-items: center; 
-    justify-content: center;
-    flex-shrink: 0; 
-    transition: opacity 0.15s;
-  }
+  .audio-player  { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 12px 16px; display: flex; align-items: center; gap: 12px; }
+  .audio-play-btn { width: 36px; height: 36px; border-radius: 50%; background: var(--amber); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: opacity 0.15s; }
   .audio-play-btn:hover { opacity: 0.85; }
-  .audio-waveform {
-    flex: 1; 
-    height: 32px;
-    background: var(--bg-base); 
-    border-radius: 4px;
-    display: flex; 
-    align-items: center;
-    overflow: hidden; 
-    gap: 2px; 
-    padding: 0 8px;
-  }
-  .wave-bar {
-    width: 2px; 
-    background: var(--border);
-    border-radius: 1px; 
-    flex-shrink: 0;
-    transition: background 0.1s;
-  }
-  .audio-duration {
-    font-family: var(--font-mono); 
-    font-size: 11px;
-    color: var(--text-muted); 
-    min-width: 36px; 
-    text-align: right;
-  }
+  .audio-waveform { flex: 1; height: 32px; background: var(--bg-base); border-radius: 4px; display: flex; align-items: center; overflow: hidden; gap: 2px; padding: 0 8px; }
+  .wave-bar { width: 2px; background: var(--border); border-radius: 1px; flex-shrink: 0; }
+  .audio-duration { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); min-width: 36px; text-align: right; }
 
   /* ── Resolve form ────────────────────────────────────────────────────────── */
-  .resolve-section {
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: 14px 16px;
-    margin-bottom: 16px;
-  }
-  .resolve-section.resolved {
-    border-color: var(--teal-dim);
-    background: var(--teal-dim);
-  }
-  .resolve-title {
-    font-size: 12px; 
-    font-weight: 600;
-    margin-bottom: 10px; 
-    color: var(--text-secondary);
-    text-transform: uppercase; 
-    letter-spacing: 0.5px;
-    font-family: var(--font-mono);
-  }
-  .resolve-notes {
-    width: 100%;
-    background: var(--bg-base);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--text-primary);
-    font-family: var(--font-ui); 
-    font-size: 13px;
-    padding: 8px 10px; 
-    resize: vertical;
-    min-height: 60px;
-    outline: none;
-    transition: border-color 0.15s;
-  }
+  .resolve-section { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 14px 16px; margin-bottom: 16px; }
+  .resolve-section.resolved { border-color: var(--teal-dim); background: var(--teal-dim); }
+  .resolve-title { font-size: 12px; font-weight: 600; margin-bottom: 10px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; font-family: var(--font-mono); }
+  .resolve-notes { width: 100%; background: var(--bg-base); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text-primary); font-family: var(--font-ui); font-size: 13px; padding: 8px 10px; resize: vertical; min-height: 60px; outline: none; transition: border-color 0.15s; }
   .resolve-notes:focus { border-color: var(--amber); }
-  .resolve-btn {
-    margin-top: 8px; 
-    padding: 7px 14px;
-    background: var(--amber); 
-    color: #000;
-    border: none; 
-    border-radius: var(--radius);
-    font-size: 13px; 
-    font-weight: 600; 
-    cursor: pointer;
-    transition: opacity 0.15s;
-  }
+  .resolve-btn { margin-top: 8px; padding: 7px 14px; background: var(--amber); color: #000; border: none; border-radius: var(--radius); font-size: 13px; font-weight: 600; cursor: pointer; transition: opacity 0.15s; }
   .resolve-btn:hover    { opacity: 0.85; }
   .resolve-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .resolved-msg {
-    display: flex; 
-    align-items: center; 
-    gap: 8px;
-    color: var(--teal); 
-    font-size: 13px; 
-    font-weight: 500;
-  }
+  .resolved-msg { display: flex; align-items: center; gap: 8px; color: var(--teal); font-size: 13px; font-weight: 500; }
 
-  /* ── Toast notification ──────────────────────────────────────────────────── */
-  #toast-container {
-    position: fixed; 
-    top: 68px; 
-    right: 16px;
-    display: flex; 
-    flex-direction: column; 
-    gap: 8px;
-    z-index: 200; 
-    pointer-events: none;
-  }
-  .toast {
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: 12px 14px;
-    min-width: 280px; 
-    max-width: 360px;
-    pointer-events: all;
-    animation: slide-in 0.2s ease;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-  }
+  /* ── Detail grid ─────────────────────────────────────────────────────────── */
+  .detail-grid  { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+  .detail-grid.thirds { grid-template-columns: 1fr 1fr 1fr; }
+  .detail-field { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; }
+  .field-label  { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 2px; }
+  .field-value  { font-size: 13px; color: var(--text-primary); font-family: var(--font-mono); }
+
+  /* ── Analysis summary box ────────────────────────────────────────────────── */
+  .analysis-box { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px; margin-top: 8px; margin-bottom: 16px; }
+
+  /* ── Toast ───────────────────────────────────────────────────────────────── */
+  #toast-container { position: fixed; top: 68px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 200; pointer-events: none; }
+  .toast { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 12px 14px; min-width: 280px; max-width: 360px; pointer-events: all; animation: slide-in 0.2s ease; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
   .toast.high   { border-left: 3px solid var(--red);   }
   .toast.medium { border-left: 3px solid var(--amber);  }
   .toast.low    { border-left: 3px solid var(--teal);   }
-  @keyframes slide-in {
-    from { transform: translateX(20px); opacity: 0; }
-    to   { transform: translateX(0);    opacity: 1; }
-  }
+  .toast.scream { border-left: 3px solid var(--red); }
+  @keyframes slide-in { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
   .toast-header  { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
   .toast-title   { font-size: 13px; font-weight: 600; flex: 1; }
   .toast-dismiss { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px; }
   .toast-body    { font-size: 12px; color: var(--text-secondary); }
 
   /* ── Analytics tab ───────────────────────────────────────────────────────── */
-  .analytics-panel { 
-    padding: 16px; 
-    height: 100%;
-    overflow-y: auto;
-  }
-  .chart-card {
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: 14px; 
-    margin-bottom: 12px;
-  }
-  .chart-title {
-    font-size: 11px; 
-    text-transform: uppercase;
-    letter-spacing: 0.5px; 
-    color: var(--text-muted);
-    font-family: var(--font-mono); 
-    margin-bottom: 10px;
-  }
+  .analytics-panel { padding: 16px; }
+  .chart-card  { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 14px; margin-bottom: 12px; }
+  .chart-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 10px; }
+  .bar-chart   { display: flex; flex-direction: column; gap: 6px; }
+  .bar-row     { display: flex; align-items: center; gap: 8px; }
+  .bar-label   { font-size: 12px; color: var(--text-secondary); width: 140px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar-track   { flex: 1; height: 14px; background: var(--bg-elevated); border-radius: 3px; overflow: hidden; }
+  .bar-fill    { height: 100%; background: var(--amber); border-radius: 3px; transition: width 0.5s ease; }
+  .bar-count   { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); min-width: 24px; text-align: right; }
+  .donut-row   { display: flex; align-items: center; gap: 16px; justify-content: center; }
+  .donut-legend{ display: flex; flex-direction: column; gap: 6px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+  .legend-dot  { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .sparkline   { width: 100%; height: 60px; }
 
-  /* Simple bar chart */
-  .bar-chart { display: flex; flex-direction: column; gap: 6px; }
-  .bar-row { display: flex; align-items: center; gap: 8px; }
-  .bar-label { 
-    font-size: 12px; 
-    color: var(--text-secondary); 
-    width: 140px; 
-    flex-shrink: 0; 
-    white-space: nowrap; 
-    overflow: hidden; 
-    text-overflow: ellipsis; 
-  }
-  .bar-track { 
-    flex: 1; 
-    height: 14px; 
-    background: var(--bg-elevated); 
-    border-radius: 3px; 
-    overflow: hidden; 
-  }
-  .bar-fill  { 
-    height: 100%; 
-    background: var(--amber); 
-    border-radius: 3px; 
-    transition: width 0.5s ease; 
-  }
-  .bar-count { 
-    font-family: var(--font-mono); 
-    font-size: 11px; 
-    color: var(--text-muted); 
-    min-width: 24px; 
-    text-align: right; 
-  }
-
-  /* Simple severity donut */
-  .donut-row { display: flex; align-items: center; gap: 16px; justify-content: center; }
-  .donut-legend { display: flex; flex-direction: column; gap: 6px; }
-  .legend-item  { display: flex; align-items: center; gap: 6px; font-size: 12px; }
-  .legend-dot   { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-
-  /* Trend sparkline */
-  .sparkline { width: 100%; height: 60px; }
-
-  /* ── Filters bar ─────────────────────────────────────────────────────────── */
-  .filters {
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--border-subtle);
-    display: flex; 
-    gap: 6px; 
-    flex-wrap: wrap;
-    flex-shrink: 0;
-  }
-  .filter-btn {
-    font-size: 11px; 
-    padding: 3px 10px; 
-    border-radius: 100px;
-    border: 1px solid var(--border); 
-    background: none;
-    color: var(--text-secondary); 
-    cursor: pointer;
-    font-family: var(--font-mono); 
-    transition: all 0.15s;
-  }
-  .filter-btn:hover  { border-color: var(--amber); color: var(--amber); }
-  .filter-btn.active { background: var(--amber-dim); border-color: var(--amber); color: var(--amber); }
-
-  .empty-state {
-    padding: 32px 16px; 
-    text-align: center;
-    color: var(--text-muted); 
-    font-size: 13px;
-  }
-
-  /* ── Detail grid sections ────────────────────────────────────────────────── */
-  .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
-  .detail-field { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; }
-  .field-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 2px; }
-  .field-value { font-size: 13px; color: var(--text-primary); font-family: var(--font-mono); }
-
-  /* ── Scream Alert specific styles ───────────────────────────────────────── */
-  .alert-card-details {
-    font-size: 11px; 
-    color: var(--text-secondary);
-    display: flex; 
-    gap: 12px; 
-    margin-top: 4px;
-  }
-  .alert-card-details span {
-    display: flex; 
-    align-items: center; 
-    gap: 3px;
-  }
-
-  .page {
-    display: none;
-    height: 100%;
-  }
-  .page.active {
-    display: contents;
-  }
-
-  /* Scream detail grid (3 columns) */
-  .scream-detail-grid {
-    display: grid; 
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 10px; 
-    margin-bottom: 16px;
-  }
-  .scream-detail-grid .detail-field {
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 10px 12px;
-  }
-  .scream-detail-grid .field-label {
-    font-size: 10px; 
-    text-transform: uppercase;
-    letter-spacing: 0.5px; 
-    color: var(--text-muted);
-    font-family: var(--font-mono); 
-    margin-bottom: 2px;
-  }
-  .scream-detail-grid .field-value {
-    font-size: 14px; 
-    color: var(--text-primary);
-    font-family: var(--font-mono);
-  }
+  .empty-state { padding: 32px 16px; text-align: center; color: var(--text-muted); font-size: 13px; }
 </style>
 </head>
 <body>
 <div class="app">
 
-  <!-- ── Topbar ─────────────────────────────────────────────────────────── -->
+  <!-- ── Topbar ──────────────────────────────────────────────────────────── -->
   <header class="topbar">
     <div class="topbar-logo">
       <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -684,6 +299,19 @@
       S.A.M.S.
       <span class="sub">Smart Audio Monitoring System</span>
     </div>
+
+    <!-- Page nav tabs -->
+    <nav class="nav-tabs">
+      <button class="nav-tab active" onclick="switchPage('alerts', this)">
+        🚨 Alerts
+        <span class="badge" id="alert-nav-badge"></span>
+      </button>
+      <button class="nav-tab scream-tab" onclick="switchPage('scream', this)">
+        🔴 Scream Events
+        <span class="badge" id="scream-nav-badge">0</span>
+      </button>
+    </nav>
+
     <div class="topbar-spacer"></div>
     <div class="ws-badge">
       <div class="ws-dot" id="ws-dot"></div>
@@ -692,180 +320,130 @@
     <div class="topbar-time" id="clock"></div>
   </header>
 
-  <!-- ── Navigation ─────────────────────────────────────────────────────── -->
-  <div class="nav-tabs">
-    <button class="nav-tab active" onclick="switchPage('main', this)">
-      📊 Dashboard
-    </button>
-    <button class="nav-tab" onclick="switchPage('scream', this)">
-      🔴 Scream Alerts
-      <span class="badge" id="scream-badge">0</span>
-    </button>
-  </div>
+  <!-- ── Pages container ─────────────────────────────────────────────────── -->
+  <div style="overflow:hidden; height:100%;">
 
-  <!-- ── Main Container ────────────────────────────────────────────────── -->
-  <div class="main-container">
+    <!-- ══════════════════════════════════════════════════════════════════════
+         PAGE 1: ALERTS
+    ══════════════════════════════════════════════════════════════════════ -->
+    <div class="page active" id="page-alerts">
 
-    <!-- ═══════════════════════════════════════════════════════════════════════ -->
-    <!-- PAGE 1: MAIN DASHBOARD                                               -->
-    <!-- ═══════════════════════════════════════════════════════════════════════ -->
-    <div class="page active" id="page-main">
-      <div class="main">
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <div class="sidebar-tabs">
+          <div class="sidebar-tab active" data-tab="alerts-list" onclick="switchAlertsTab('alerts-list', this)">Alerts</div>
+          <div class="sidebar-tab" data-tab="analytics" onclick="switchAlertsTab('analytics', this)">Analytics</div>
+        </div>
 
-        <!-- ── Sidebar ────────────────────────────────────────────────────── -->
-        <aside class="sidebar">
-          <div class="sidebar-tabs">
-            <div class="sidebar-tab active" data-tab="alerts" onclick="switchTab('alerts', this)">
-              Alerts <span id="alert-count-badge"></span>
-            </div>
-            <div class="sidebar-tab" data-tab="analytics" onclick="switchTab('analytics', this)">
-              Analytics
-            </div>
+        <!-- Alerts list tab -->
+        <div id="tab-alerts-list" style="display:flex; flex-direction:column; flex:1; overflow:hidden;">
+          <div class="filters">
+            <button class="filter-btn active" onclick="setAlertFilter('active', this)">Active</button>
+            <button class="filter-btn" onclick="setAlertFilter('all', this)">All</button>
+            <button class="filter-btn" onclick="setAlertFilter('resolved', this)">Resolved</button>
+            <button class="filter-btn" style="margin-left:auto" onclick="setAlertFilter('high', this)">High</button>
+            <button class="filter-btn" onclick="setAlertFilter('medium', this)">Med</button>
+            <button class="filter-btn" onclick="setAlertFilter('low', this)">Low</button>
           </div>
-
-          <!-- Alerts tab -->
-          <div id="tab-alerts" style="display:flex; flex-direction:column; flex:1; overflow:hidden;">
-            <div class="filters">
-              <button class="filter-btn active" onclick="setFilter('active', this)">Active</button>
-              <button class="filter-btn" onclick="setFilter('all', this)">All</button>
-              <button class="filter-btn" onclick="setFilter('resolved', this)">Resolved</button>
-              <button class="filter-btn" style="margin-left:auto" onclick="setFilter('high', this)">High</button>
-              <button class="filter-btn" onclick="setFilter('medium', this)">Med</button>
-              <button class="filter-btn" onclick="setFilter('low', this)">Low</button>
-            </div>
-            <div class="sidebar-list" id="alert-list">
-              <div class="empty-state">Loading alerts…</div>
-            </div>
+          <div class="sidebar-list" id="alert-list">
+            <div class="empty-state">Loading alerts…</div>
           </div>
+        </div>
 
-          <!-- Analytics tab -->
-          <div id="tab-analytics" style="display:none; overflow-y:auto; flex:1;">
-            <div class="analytics-panel" id="analytics-content">
-              <div class="empty-state">Loading…</div>
-            </div>
+        <!-- Analytics tab -->
+        <div id="tab-analytics" style="display:none; overflow-y:auto; flex:1;">
+          <div class="analytics-panel" id="analytics-content">
+            <div class="empty-state">Loading…</div>
           </div>
-        </aside>
+        </div>
+      </aside>
 
-        <!-- ── Detail panel ────────────────────────────────────────────────── -->
-        <section class="detail">
-
-          <!-- Stats strip -->
-          <div class="stats-strip">
-            <div class="stat-cell">
-              <div class="stat-label">Active Alerts</div>
-              <div class="stat-value red" id="stat-active">—</div>
-            </div>
-            <div class="stat-cell">
-              <div class="stat-label">High Severity</div>
-              <div class="stat-value amber" id="stat-high">—</div>
-            </div>
-            <div class="stat-cell">
-              <div class="stat-label">Resolved Today</div>
-              <div class="stat-value teal" id="stat-resolved">—</div>
-            </div>
-            <div class="stat-cell">
-              <div class="stat-label">Total Incidents</div>
-              <div class="stat-value blue" id="stat-total">—</div>
-            </div>
+      <!-- Detail panel -->
+      <section class="detail">
+        <div class="stats-strip">
+          <div class="stat-cell"><div class="stat-label">Active Alerts</div><div class="stat-value red" id="stat-active">—</div></div>
+          <div class="stat-cell"><div class="stat-label">High Severity</div><div class="stat-value amber" id="stat-high">—</div></div>
+          <div class="stat-cell"><div class="stat-label">Resolved Today</div><div class="stat-value teal" id="stat-resolved">—</div></div>
+          <div class="stat-cell"><div class="stat-label">Total Incidents</div><div class="stat-value blue" id="stat-total">—</div></div>
+        </div>
+        <div class="detail-content" id="alert-detail-panel">
+          <div class="detail-empty">
+            <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            </svg>
+            <p>Select an alert to view incident details</p>
           </div>
-
-          <!-- Detail content -->
-          <div class="detail-content" id="detail-panel">
-            <div class="detail-empty">
-              <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-              </svg>
-              <p>Select an alert to view incident details</p>
-            </div>
-          </div>
-
-        </section>
-      </div>
+        </div>
+      </section>
     </div>
 
-    <!-- ═══════════════════════════════════════════════════════════════════════ -->
-    <!-- PAGE 2: SCREAM ALERTS                                                -->
-    <!-- ═══════════════════════════════════════════════════════════════════════ -->
+    <!-- ══════════════════════════════════════════════════════════════════════
+         PAGE 2: SCREAM EVENTS
+    ══════════════════════════════════════════════════════════════════════ -->
     <div class="page" id="page-scream">
-      <div class="main">
 
-        <!-- ── Sidebar ────────────────────────────────────────────────────── -->
-        <aside class="sidebar">
-          <div style="padding:12px 16px;border-bottom:1px solid var(--border);flex-shrink:0;">
-            <h3 style="font-size:13px;font-weight:500;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px;">
-              🔴 Scream Events
-            </h3>
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <h3>🔴 Scream Detection Events</h3>
+        </div>
+
+        <!-- Filter bar: Screams only / All events -->
+        <div class="filters">
+          <button class="filter-btn scream-active" id="scream-filter-scream" onclick="setScreamFilter('scream', this)">🔴 Screams Only</button>
+          <button class="filter-btn" id="scream-filter-all" onclick="setScreamFilter('all', this)">All Events</button>
+        </div>
+
+        <div class="sidebar-list" id="scream-list">
+          <div class="empty-state">Loading events…</div>
+        </div>
+      </aside>
+
+      <!-- Detail panel -->
+      <section class="detail">
+        <div class="stats-strip">
+          <div class="stat-cell"><div class="stat-label">Total Events</div><div class="stat-value blue" id="scream-stat-total">—</div></div>
+          <div class="stat-cell"><div class="stat-label">Screams Detected</div><div class="stat-value red" id="scream-stat-screams">—</div></div>
+          <div class="stat-cell"><div class="stat-label">High Confidence</div><div class="stat-value amber" id="scream-stat-high">—</div></div>
+          <div class="stat-cell"><div class="stat-label">No Scream</div><div class="stat-value teal" id="scream-stat-noscream">—</div></div>
+        </div>
+        <div class="detail-content" id="scream-detail-panel">
+          <div class="detail-empty">
+            <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            </svg>
+            <p>Select an event to view scream detection details</p>
           </div>
-          <div class="sidebar-list" id="scream-list">
-            <div class="empty-state">Loading scream events…</div>
-          </div>
-        </aside>
-
-        <!-- ── Detail panel ────────────────────────────────────────────────── -->
-        <section class="detail">
-
-          <!-- Stats strip -->
-          <div class="stats-strip">
-            <div class="stat-cell">
-              <div class="stat-label">Total Screams</div>
-              <div class="stat-value red" id="scream-total">—</div>
-            </div>
-            <div class="stat-cell">
-              <div class="stat-label">High Confidence</div>
-              <div class="stat-value amber" id="scream-high">—</div>
-            </div>
-            <div class="stat-cell">
-              <div class="stat-label">Medium Confidence</div>
-              <div class="stat-value blue" id="scream-medium">—</div>
-            </div>
-            <div class="stat-cell">
-              <div class="stat-label">Low Confidence</div>
-              <div class="stat-value teal" id="scream-low">—</div>
-            </div>
-          </div>
-
-          <!-- Detail content -->
-          <div class="detail-content" id="scream-detail-panel">
-            <div class="detail-empty">
-              <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-              </svg>
-              <p>Select a scream event to view details</p>
-            </div>
-          </div>
-
-        </section>
-      </div>
+        </div>
+      </section>
     </div>
 
-  </div> <!-- End main-container -->
+  </div><!-- end pages container -->
+</div><!-- end app -->
 
-</div> <!-- End app -->
-
-<!-- Toast container -->
 <div id="toast-container"></div>
 
 <script>
 // ── Config ────────────────────────────────────────────────────────────────────
-// Since this is served from the backend, localhost works!
-const API = 'http://localhost:8000';
+const API    = 'http://localhost:8000';
 const WS_URL = 'ws://localhost:8000/ws/dashboard';
 
 // ── State ─────────────────────────────────────────────────────────────────────
-// Original alert state (unchanged)
-let alerts       = [];
-let selectedId   = null;
-let filterStatus = 'active';
-let filterSev    = null;
-let ws           = null;
-let currentAudio = null;
+let alerts          = [];
+let selectedAlertId = null;
+let filterStatus    = 'active';
+let filterSev       = null;
+let ws              = null;
+let currentAudio    = null;
 
-// New scream alert state
-let screamEvents = [];
-let selectedScreamId = null;
-let lastScreamCount = 0;
+let allEvents         = [];
+let selectedEventId   = null;
+let screamFilter      = 'scream';   // 'scream' | 'all'
+let lastEventCount    = 0;
+
+let currentPage = 'alerts';
 
 // ── Clock ─────────────────────────────────────────────────────────────────────
 function updateClock() {
@@ -875,93 +453,88 @@ function updateClock() {
 setInterval(updateClock, 1000);
 updateClock();
 
-// ── Page Switching ──────────────────────────────────────────────────────────
+// ── Page switching ─────────────────────────────────────────────────────────────
 function switchPage(page, el) {
+  currentPage = page;
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
-  
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.getElementById(`page-${page}`).classList.add('active');
-  
-  if (page === 'scream') {
-    loadScreamEvents();
-  }
+  document.getElementById('page-' + page).classList.add('active');
+  if (page === 'scream') loadScreamEvents();
 }
 
-// ── WebSocket (Module 4 — real-time push) ─────────────────────────────────────
+// ── Alerts tab switching ───────────────────────────────────────────────────────
+function switchAlertsTab(tab, el) {
+  document.querySelectorAll('#page-alerts .sidebar-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('tab-alerts-list').style.display = tab === 'alerts-list' ? 'flex' : 'none';
+  document.getElementById('tab-analytics').style.display   = tab === 'analytics'   ? 'block' : 'none';
+  if (tab === 'analytics') loadAnalytics();
+}
+
+// ── WebSocket ──────────────────────────────────────────────────────────────────
 function connectWS() {
   ws = new WebSocket(WS_URL);
 
   ws.onopen = () => {
-    document.getElementById('ws-dot').className    = 'ws-dot connected';
+    document.getElementById('ws-dot').className     = 'ws-dot connected';
     document.getElementById('ws-status').textContent = 'Live';
-    // Heartbeat
     setInterval(() => ws.readyState === 1 && ws.send('ping'), 25000);
   };
 
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
-    if (msg.type === 'ALERT') {
-      handleIncomingAlert(msg);
-    }
+    if (msg.type === 'ALERT') handleIncomingAlert(msg);
   };
 
   ws.onclose = () => {
-    document.getElementById('ws-dot').className    = 'ws-dot error';
+    document.getElementById('ws-dot').className     = 'ws-dot error';
     document.getElementById('ws-status').textContent = 'Reconnecting…';
     setTimeout(connectWS, 3000);
   };
 
   ws.onerror = () => {
-    document.getElementById('ws-dot').className    = 'ws-dot error';
+    document.getElementById('ws-dot').className     = 'ws-dot error';
     document.getElementById('ws-status').textContent = 'Disconnected';
   };
 }
 
 function handleIncomingAlert(msg) {
-  // ── Original alert handling (unchanged) ──────────────────────────────
   const existing = alerts.find(a => a.alert_id === msg.alert_id);
   if (!existing) {
     alerts.unshift({
-      alert_id:       msg.alert_id,
-      event_id:       msg.event_id,
-      severity:       msg.severity,
-      status:         'active',
-      location_name:  msg.location_name,
-      transcript:     msg.transcript,
-      threat_score:   msg.threat_score,
-      classification: msg.classification,
-      audio_url:      msg.audio_url,
-      created_at:     msg.timestamp,
+      alert_id: msg.alert_id, event_id: msg.event_id,
+      severity: msg.severity, status: 'active',
+      location_name: msg.location_name, transcript: msg.transcript,
+      threat_score: msg.threat_score, classification: msg.classification,
+      audio_url: msg.audio_url, created_at: msg.timestamp,
     });
     renderAlertList();
     loadStats();
-    showToast(msg);
+    showToast(msg, msg.severity);
     playAlertSound(msg.severity);
   }
-  
-  // ── Also refresh scream events ──────────────────────────────────────
-  loadScreamEvents();
+  // Also refresh scream events in background
+  loadScreamEvents(true);
 }
 
-// ── Toast ─────────────────────────────────────────────────────────────────────
-function showToast(msg) {
+// ── Toast ──────────────────────────────────────────────────────────────────────
+function showToast(data, sevOrType) {
   const container = document.getElementById('toast-container');
   const toast = document.createElement('div');
-  toast.className = `toast ${msg.severity}`;
+  toast.className = `toast ${sevOrType}`;
   toast.innerHTML = `
     <div class="toast-header">
-      <span class="sev-badge ${msg.severity}">${msg.severity}</span>
-      <span class="toast-title">${escHtml(msg.location_name)}</span>
+      <span class="sev-badge ${sevOrType}">${data.isScream ? '🔴 SCREAM' : (sevOrType || 'info').toUpperCase()}</span>
+      <span class="toast-title">${escHtml(data.location_name || data.location || 'Event')}</span>
       <button class="toast-dismiss" onclick="this.parentElement.parentElement.remove()">×</button>
     </div>
-    <div class="toast-body">${escHtml((msg.transcript || '').substring(0, 80))}${msg.transcript?.length > 80 ? '…' : ''}</div>
+    <div class="toast-body">${escHtml(data.transcript ? data.transcript.substring(0,80) : (data.confidence !== undefined ? `Confidence: ${(data.confidence*100).toFixed(0)}%` : ''))}</div>
   `;
   container.appendChild(toast);
-  setTimeout(() => toast.remove(), 6000);
+  setTimeout(() => toast.remove(), 7000);
 }
 
-// Simple audio alert beep using Web Audio API
 function playAlertSound(severity) {
   try {
     const ctx  = new (window.AudioContext || window.webkitAudioContext)();
@@ -975,14 +548,16 @@ function playAlertSound(severity) {
   } catch(_) {}
 }
 
-// ── ORIGINAL ALERT FUNCTIONS (UNCHANGED) ──────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+// ALERTS PAGE
+// ══════════════════════════════════════════════════════════════════════════════
+
 async function loadAlerts() {
   try {
     const sev    = filterSev ? `&severity=${filterSev}` : '';
-    const status = filterStatus === 'high' || filterStatus === 'medium' || filterStatus === 'low'
-                   ? 'all' : filterStatus;
-    const res  = await fetch(`${API}/api/alerts/?status=${status}${sev}&per_page=50`);
-    const data = await res.json();
+    const status = ['high','medium','low'].includes(filterStatus) ? 'all' : filterStatus;
+    const res    = await fetch(`${API}/api/alerts/?status=${status}${sev}&per_page=50`);
+    const data   = await res.json();
     alerts = data.alerts || [];
     renderAlertList();
   } catch(e) {
@@ -998,17 +573,15 @@ async function loadStats() {
     document.getElementById('stat-active').textContent   = data.active_alerts ?? '—';
     document.getElementById('stat-high').textContent     = data.high ?? '—';
     document.getElementById('stat-resolved').textContent = data.resolved_alerts ?? '—';
-    document.getElementById('stat-total').textContent    =
-      (data.active_alerts || 0) + (data.resolved_alerts || 0);
-    document.getElementById('alert-count-badge').textContent =
-      data.active_alerts > 0 ? ` (${data.active_alerts})` : '';
+    document.getElementById('stat-total').textContent    = (data.active_alerts||0) + (data.resolved_alerts||0);
+    const count = data.active_alerts || 0;
+    document.getElementById('alert-nav-badge').textContent = count > 0 ? count : '';
   } catch(_) {}
 }
 
 function renderAlertList() {
   const list = document.getElementById('alert-list');
-  let   data = [...alerts];
-
+  let data = [...alerts];
   if (filterStatus === 'active')   data = data.filter(a => a.status === 'active');
   if (filterStatus === 'resolved') data = data.filter(a => a.status === 'resolved');
   if (filterStatus === 'high')     data = data.filter(a => a.severity === 'high');
@@ -1019,47 +592,41 @@ function renderAlertList() {
     list.innerHTML = '<div class="empty-state">No alerts match this filter</div>';
     return;
   }
-
   list.innerHTML = data.map(a => `
-    <div class="alert-card ${a.severity} ${selectedId === a.alert_id ? 'active' : ''}"
+    <div class="alert-card ${a.severity} ${selectedAlertId === a.alert_id ? 'active-card' : ''}"
          onclick="selectAlert('${a.alert_id}')">
       <div class="alert-card-top">
         <span class="sev-badge ${a.severity}">${a.severity}</span>
         <span class="alert-card-location">${escHtml(a.location_name || 'Unknown')}</span>
         <span class="alert-card-time">${formatTime(a.created_at)}</span>
       </div>
-      <div class="alert-card-transcript">${escHtml((a.transcript || 'No transcript').substring(0, 60))}</div>
+      <div class="alert-card-transcript">${escHtml((a.transcript || 'No transcript').substring(0,60))}</div>
       <div class="alert-card-status ${a.status}">${a.status}</div>
     </div>
   `).join('');
 }
 
 async function selectAlert(alertId) {
-  selectedId = alertId;
+  selectedAlertId = alertId;
   renderAlertList();
-
   const cached = alerts.find(a => a.alert_id === alertId);
-  if (cached) renderDetail(cached);
-
+  if (cached) renderAlertDetail(cached);
   try {
     const res  = await fetch(`${API}/api/alerts/${alertId}`);
     const data = await res.json();
-    renderDetail(data);
+    renderAlertDetail(data);
   } catch(_) {}
 }
 
-function renderDetail(alert) {
-  const score   = alert.threat_score ?? 0;
-  const scoreW  = Math.round(score * 100);
-  const sev     = alert.severity || 'low';
-  const isRes   = alert.status === 'resolved';
+function renderAlertDetail(alert) {
+  const score  = alert.threat_score ?? 0;
+  const scoreW = Math.round(score * 100);
+  const sev    = alert.severity || 'low';
+  const isRes  = alert.status === 'resolved';
   const transcript = alert.transcript || 'No speech detected in this clip.';
-  const fmt = (v, unit, dp = 1) => (v === null || v === undefined) ? '—' : Number(v).toFixed(dp) + unit;
-  const intensityTxt = fmt(alert.intensity, ' dB', 1);
-  const pitchTxt     = fmt(alert.pitch, ' Hz', 0);
-  const edgeConfTxt  = (alert.edge_confidence === null || alert.edge_confidence === undefined) ? '—' : (alert.edge_confidence * 100).toFixed(0) + '%';
+  const fmt = (v, unit, dp=1) => (v===null||v===undefined) ? '—' : Number(v).toFixed(dp)+unit;
 
-  document.getElementById('detail-panel').innerHTML = `
+  document.getElementById('alert-detail-panel').innerHTML = `
     <div class="detail-header">
       <div>
         <div class="detail-title">${escHtml(alert.location_name || 'Unknown Location')}</div>
@@ -1075,28 +642,24 @@ function renderDetail(alert) {
     <div class="detail-grid">
       <div class="detail-field">
         <div class="field-label">Threat Score</div>
-        <div class="field-value" style="color:var(--${sev === 'high' ? 'red' : sev === 'medium' ? 'amber' : 'teal'})">${(score * 100).toFixed(1)}%</div>
+        <div class="field-value" style="color:var(--${sev==='high'?'red':sev==='medium'?'amber':'teal'})">${(score*100).toFixed(1)}%</div>
       </div>
       <div class="detail-field">
         <div class="field-label">Event ID</div>
-        <div class="field-value" style="font-size:11px;color:var(--text-muted)">${(alert.event_id || '').substring(0,8)}…</div>
+        <div class="field-value" style="font-size:11px;color:var(--text-muted)">${(alert.event_id||'').substring(0,8)}…</div>
       </div>
       <div class="detail-field">
         <div class="field-label">Intensity</div>
-        <div class="field-value">${intensityTxt}</div>
+        <div class="field-value">${fmt(alert.intensity,' dB')}</div>
       </div>
       <div class="detail-field">
         <div class="field-label">Pitch</div>
-        <div class="field-value">${pitchTxt}</div>
-      </div>
-      <div class="detail-field">
-        <div class="field-label">Edge Scream Conf</div>
-        <div class="field-value">${edgeConfTxt}</div>
+        <div class="field-value">${fmt(alert.pitch,' Hz',0)}</div>
       </div>
     </div>
 
     <div class="score-section">
-      <div class="score-label">Confidence</div>
+      <div class="score-label">Confidence Score</div>
       <div class="score-row">
         <div class="score-bar-track">
           <div class="score-bar-fill ${sev}" style="width:${scoreW}%"></div>
@@ -1114,42 +677,61 @@ function renderDetail(alert) {
     <div class="audio-section">
       <div class="audio-player">
         <button class="audio-play-btn" onclick="toggleAudio('${API}${alert.audio_url}', this)" title="Play audio">
-          <svg id="play-icon" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+          <svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
             <path d="M11.596 8.697L4.604 12.5A.5.5 0 0 1 4 12V4a.5.5 0 0 1 .604-.5l6.992 3.803a.5.5 0 0 1 0 .894z"/>
           </svg>
         </button>
-        <div class="audio-waveform" id="waveform">
-          ${Array.from({length: 40}, (_,i) =>
-            `<div class="wave-bar" style="height:${8 + Math.sin(i * 0.7) * 8 + Math.random() * 8}px"></div>`
-          ).join('')}
+        <div class="audio-waveform">
+          ${Array.from({length:40},(_,i)=>`<div class="wave-bar" style="height:${8+Math.sin(i*0.7)*8+Math.random()*8}px"></div>`).join('')}
         </div>
-        <div class="audio-duration" id="audio-time">0:00</div>
+        <div class="audio-duration" id="audio-time-alert">0:00</div>
       </div>
     </div>
     ` : ''}
 
-    <div class="resolve-section ${isRes ? 'resolved' : ''}" id="resolve-section">
+    <div class="resolve-section ${isRes?'resolved':''}" id="resolve-section">
       ${isRes ? `
         <div class="resolved-msg">
-          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path d="M20 6L9 17l-5-5"/>
-          </svg>
-          Resolved — ${escHtml(alert.resolution_notes || '')}
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+          Resolved — ${escHtml(alert.resolution_notes||'')}
         </div>
       ` : `
         <div class="resolve-title">Resolve Incident</div>
-        <textarea class="resolve-notes" id="resolve-notes"
-          placeholder="Describe your investigation and outcome…"></textarea>
-        <button class="resolve-btn" onclick="resolveAlert('${alert.alert_id}')">
-          Mark Resolved
-        </button>
+        <textarea class="resolve-notes" id="resolve-notes" placeholder="Describe your investigation and outcome…"></textarea>
+        <button class="resolve-btn" onclick="resolveAlert('${alert.alert_id}')">Mark Resolved</button>
       `}
     </div>
   `;
 }
 
-// ── Audio playback ─────────────────────────────────────────────────────────────
+function setAlertFilter(val, el) {
+  document.querySelectorAll('#tab-alerts-list .filter-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  if (['active','resolved','all'].includes(val)) { filterStatus = val; filterSev = null; }
+  else { filterSev = val; filterStatus = 'all'; }
+  loadAlerts();
+}
+
+async function resolveAlert(alertId) {
+  const notes = document.getElementById('resolve-notes')?.value?.trim();
+  if (!notes) { alert('Please enter resolution notes.'); return; }
+  const btn = document.querySelector('.resolve-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const res = await fetch(`${API}/api/alerts/${alertId}/resolve`, {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({resolution_notes: notes}),
+    });
+    if (res.ok) {
+      const a = alerts.find(x => x.alert_id === alertId);
+      if (a) { a.status = 'resolved'; a.resolution_notes = notes; }
+      await loadAlerts(); await loadStats(); selectAlert(alertId);
+    }
+  } catch(e) { btn.disabled = false; btn.textContent = 'Mark Resolved'; }
+}
+
 async function toggleAudio(url, btn) {
+  const timeEl = document.getElementById('audio-time-alert') || document.getElementById('audio-time-scream');
   if (currentAudio && !currentAudio.paused) {
     currentAudio.pause();
     btn.innerHTML = `<svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M11.596 8.697L4.604 12.5A.5.5 0 0 1 4 12V4a.5.5 0 0 1 .604-.5l6.992 3.803a.5.5 0 0 1 0 .894z"/></svg>`;
@@ -1158,46 +740,230 @@ async function toggleAudio(url, btn) {
   if (!currentAudio || currentAudio.src !== url) {
     currentAudio = new Audio(url);
     currentAudio.ontimeupdate = () => {
+      if (!timeEl) return;
       const t = currentAudio.currentTime;
-      document.getElementById('audio-time').textContent =
-        `${Math.floor(t/60)}:${String(Math.floor(t%60)).padStart(2,'0')}`;
+      timeEl.textContent = `${Math.floor(t/60)}:${String(Math.floor(t%60)).padStart(2,'0')}`;
     };
     currentAudio.onended = () => {
       btn.innerHTML = `<svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M11.596 8.697L4.604 12.5A.5.5 0 0 1 4 12V4a.5.5 0 0 1 .604-.5l6.992 3.803a.5.5 0 0 1 0 .894z"/></svg>`;
-      document.getElementById('audio-time').textContent = '0:00';
+      if (timeEl) timeEl.textContent = '0:00';
     };
   }
   await currentAudio.play();
   btn.innerHTML = `<svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M5.5 3.5A1.5 1.5 0 0 1 7 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5m5 0A1.5 1.5 0 0 1 12 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5"/></svg>`;
 }
 
-// ── Resolve alert ──────────────────────────────────────────────────────────────
-async function resolveAlert(alertId) {
-  const notes = document.getElementById('resolve-notes')?.value?.trim();
-  if (!notes) { alert('Please enter resolution notes.'); return; }
+// ══════════════════════════════════════════════════════════════════════════════
+// SCREAM EVENTS PAGE
+// ══════════════════════════════════════════════════════════════════════════════
 
-  const btn = document.querySelector('.resolve-btn');
-  btn.disabled = true; btn.textContent = 'Saving…';
+function setScreamFilter(val, el) {
+  screamFilter = val;
+  // Update button styles
+  document.getElementById('scream-filter-scream').className =
+    'filter-btn' + (val === 'scream' ? ' scream-active' : '');
+  document.getElementById('scream-filter-all').className =
+    'filter-btn' + (val === 'all' ? ' active' : '');
+  renderScreamList();
+}
 
+async function loadScreamEvents(silent = false) {
   try {
-    const res = await fetch(`${API}/api/alerts/${alertId}/resolve`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ resolution_notes: notes }),
-    });
-    if (res.ok) {
-      const a = alerts.find(x => x.alert_id === alertId);
-      if (a) { a.status = 'resolved'; a.resolution_notes = notes; }
-      await loadAlerts();
-      await loadStats();
-      selectAlert(alertId);
+    const res  = await fetch(`${API}/api/events/all`);
+    const data = await res.json();
+
+    if (data.events && data.events.length > 0) {
+      allEvents = data.events.map(ev => ({
+        id:         ev.id || ev.event_id,
+        device_id:  ev.device_id || 'Unknown',
+        location:   ev.location_id || ev.location_name || 'Unknown',
+        timestamp:  ev.timestamp,
+        intensity:  ev.intensity  || 0,
+        pitch:      ev.pitch      || 0,
+        confidence: ev.confidence_score || 0,
+        audio_url:  ev.audio_url  || null,
+        isScream:   (ev.confidence_score || 0) >= 0.3,
+        severity:   (ev.confidence_score||0) > 0.7 ? 'high'
+                  : (ev.confidence_score||0) > 0.4 ? 'medium' : 'low',
+      }));
+      allEvents.sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+      renderScreamList();
+      updateScreamStats();
+      updateScreamBadge();
+
+      // Toast for brand-new scream events
+      if (!silent && allEvents.length > lastEventCount && lastEventCount > 0) {
+        const newest = allEvents[0];
+        if (newest.isScream) {
+          showToast({ location_name: newest.location, confidence: newest.confidence, isScream: true }, 'scream');
+          playAlertSound('high');
+        }
+      }
+      if (allEvents.length > lastEventCount) lastEventCount = allEvents.length;
+
+      // Auto-select first if none selected
+      if (!selectedEventId && allEvents.length > 0) selectScream(allEvents[0].id);
+
+    } else {
+      document.getElementById('scream-list').innerHTML =
+        '<div class="empty-state">No events recorded yet</div>';
     }
   } catch(e) {
-    btn.disabled = false; btn.textContent = 'Mark Resolved';
+    if (!silent)
+      document.getElementById('scream-list').innerHTML =
+        '<div class="empty-state">❌ Cannot connect to backend</div>';
   }
 }
 
-// ── Analytics tab ──────────────────────────────────────────────────────────────
+function renderScreamList() {
+  const list = document.getElementById('scream-list');
+  let display = [...allEvents];
+
+  // Apply filter
+  if (screamFilter === 'scream') display = display.filter(e => e.isScream);
+
+  if (!display.length) {
+    list.innerHTML = screamFilter === 'scream'
+      ? '<div class="empty-state">No scream events detected yet<br><small style="color:var(--text-muted);font-size:11px">Switch to "All Events" to see all audio captures</small></div>'
+      : '<div class="empty-state">No events recorded yet</div>';
+    return;
+  }
+
+  list.innerHTML = display.map(e => `
+    <div class="alert-card ${e.isScream ? e.severity : 'no-scream'} ${selectedEventId === e.id ? 'active-card' : ''}"
+         onclick="selectScream('${e.id}')">
+      <div class="alert-card-top">
+        <span class="sev-badge ${e.isScream ? 'scream' : 'no-scream'}">
+          ${e.isScream ? '🔴 SCREAM' : '⚪ NO SCREAM'}
+        </span>
+        <span class="alert-card-location">📍 ${escHtml(e.location)}</span>
+        <span class="alert-card-time">${formatTime(e.timestamp)}</span>
+      </div>
+      <div class="alert-card-details">
+        <span>🔊 ${Number(e.intensity).toFixed(1)} dB</span>
+        <span>🎵 ${Number(e.pitch).toFixed(0)} Hz</span>
+        <span>📊 ${(e.confidence*100).toFixed(0)}%</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function selectScream(id) {
+  selectedEventId = id;
+  renderScreamList();
+  const ev = allEvents.find(e => e.id === id);
+  if (ev) renderScreamDetail(ev);
+}
+
+function renderScreamDetail(ev) {
+  const confPct   = (ev.confidence * 100).toFixed(0);
+  const isScream  = ev.isScream;
+  const sevClass  = isScream ? ev.severity : 'low';
+  const fillClass = isScream ? ev.severity : 'low';
+
+  document.getElementById('scream-detail-panel').innerHTML = `
+    <div class="detail-header">
+      <div>
+        <div class="detail-title">
+          ${isScream ? '🔴' : '⚪'} ${escHtml(ev.location)}
+        </div>
+        <div class="detail-meta">
+          <span class="sev-badge ${isScream ? sevClass : 'no-scream'}">
+            ${isScream ? 'SCREAM DETECTED' : 'NO SCREAM'}
+          </span>
+          <span class="meta-pill">${formatDateTime(ev.timestamp)}</span>
+          <span class="meta-pill">Device: ${escHtml(ev.device_id)}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="score-section">
+      <div class="score-label">Scream Detection Confidence</div>
+      <div class="score-row">
+        <div class="score-bar-track">
+          <div class="score-bar-fill ${fillClass}" style="width:${confPct}%"></div>
+        </div>
+        <div class="score-value" style="color:var(--${isScream?(sevClass==='high'?'red':sevClass==='medium'?'amber':'teal'):'text-muted'})">${confPct}%</div>
+      </div>
+    </div>
+
+    <div class="detail-grid thirds">
+      <div class="detail-field">
+        <div class="field-label">Intensity</div>
+        <div class="field-value">${Number(ev.intensity).toFixed(1)} dB</div>
+      </div>
+      <div class="detail-field">
+        <div class="field-label">Pitch Frequency</div>
+        <div class="field-value">${Number(ev.pitch).toFixed(0)} Hz</div>
+      </div>
+      <div class="detail-field">
+        <div class="field-label">Event ID</div>
+        <div class="field-value" style="font-size:11px;color:var(--text-muted)">${String(ev.id).substring(0,8)}…</div>
+      </div>
+    </div>
+
+    <div class="analysis-box">
+      <div class="box-label">Analysis Summary</div>
+      <div class="detail-grid thirds" style="margin-bottom:0;">
+        <div>
+          <div class="field-label" style="margin-bottom:4px;">Classification</div>
+          <div style="font-size:15px;font-weight:600;color:${isScream?'var(--red)':'var(--text-secondary)'}">
+            ${isScream ? '🔴 SCREAM' : '⚪ NORMAL'}
+          </div>
+        </div>
+        <div>
+          <div class="field-label" style="margin-bottom:4px;">Confidence</div>
+          <div style="font-size:15px;font-weight:600;">${confPct}%</div>
+        </div>
+        <div>
+          <div class="field-label" style="margin-bottom:4px;">Severity</div>
+          <div style="font-size:15px;font-weight:600;text-transform:uppercase;color:var(--${isScream?(sevClass==='high'?'red':sevClass==='medium'?'amber':'teal'):'text-muted'})">
+            ${isScream ? sevClass : '—'}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    ${ev.audio_url ? `
+    <div class="audio-section">
+      <div class="audio-player">
+        <button class="audio-play-btn" onclick="toggleAudio('${API}${ev.audio_url}', this)" title="Play audio">
+          <svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+            <path d="M11.596 8.697L4.604 12.5A.5.5 0 0 1 4 12V4a.5.5 0 0 1 .604-.5l6.992 3.803a.5.5 0 0 1 0 .894z"/>
+          </svg>
+        </button>
+        <div class="audio-waveform">
+          ${Array.from({length:40},(_,i)=>`<div class="wave-bar" style="height:${8+Math.sin(i*0.7)*8+Math.random()*8}px"></div>`).join('')}
+        </div>
+        <div class="audio-duration" id="audio-time-scream">0:00</div>
+      </div>
+    </div>
+    ` : '<div style="padding:12px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-muted);font-size:12px;margin-bottom:16px;">No audio clip available for this event</div>'}
+  `;
+}
+
+function updateScreamStats() {
+  const total    = allEvents.length;
+  const screams  = allEvents.filter(e => e.isScream).length;
+  const high     = allEvents.filter(e => e.isScream && e.confidence > 0.7).length;
+  const noScream = allEvents.filter(e => !e.isScream).length;
+
+  document.getElementById('scream-stat-total').textContent   = total;
+  document.getElementById('scream-stat-screams').textContent = screams;
+  document.getElementById('scream-stat-high').textContent    = high;
+  document.getElementById('scream-stat-noscream').textContent= noScream;
+}
+
+function updateScreamBadge() {
+  const count = allEvents.filter(e => e.isScream).length;
+  document.getElementById('scream-nav-badge').textContent = count;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ANALYTICS
+// ══════════════════════════════════════════════════════════════════════════════
+
 async function loadAnalytics() {
   const panel = document.getElementById('analytics-content');
   try {
@@ -1210,8 +976,8 @@ async function loadAnalytics() {
     const sev   = await sevRes.json();
     const trend = await trendRes.json();
 
-    const maxCount = Math.max(...(hot.hotspots || []).map(h => h.count), 1);
-    const hotspotHTML = (hot.hotspots || []).map(h => `
+    const maxCount   = Math.max(...(hot.hotspots||[]).map(h=>h.count),1);
+    const hotspotHTML = (hot.hotspots||[]).map(h=>`
       <div class="bar-row">
         <div class="bar-label">${escHtml(h.location_name)}</div>
         <div class="bar-track"><div class="bar-fill" style="width:${Math.round(h.count/maxCount*100)}%"></div></div>
@@ -1220,22 +986,21 @@ async function loadAnalytics() {
     `).join('') || '<div style="color:var(--text-muted);font-size:12px">No incidents yet</div>';
 
     const breakdown = sev.breakdown || [];
-    const sevColors = { high: '#f85149', medium: '#f0a500', low: '#39d353' };
-    const sevTotal  = breakdown.reduce((s, r) => s + r.count, 0) || 1;
-    const legendHTML = breakdown.map(r => `
+    const sevColors = { high:'#f85149', medium:'#f0a500', low:'#39d353' };
+    const sevTotal  = breakdown.reduce((s,r)=>s+r.count,0)||1;
+    const legendHTML = breakdown.map(r=>`
       <div class="legend-item">
-        <div class="legend-dot" style="background:${sevColors[r.severity] || '#888'}"></div>
+        <div class="legend-dot" style="background:${sevColors[r.severity]||'#888'}"></div>
         ${r.severity} — ${r.count} (${Math.round(r.count/sevTotal*100)}%)
       </div>
     `).join('');
 
-    // Simple SVG sparkline
-    const points = (trend.trend || []).slice(-14);
-    const maxVal = Math.max(...points.map(p => p.total), 1);
-    const svgW   = 240; const svgH = 50;
-    const sparkPts = points.map((p, i) => {
-      const x = (i / Math.max(points.length - 1, 1)) * svgW;
-      const y = svgH - (p.total / maxVal) * (svgH - 6) - 3;
+    const points = (trend.trend||[]).slice(-14);
+    const maxVal = Math.max(...points.map(p=>p.total),1);
+    const svgW=240, svgH=50;
+    const sparkPts = points.map((p,i)=>{
+      const x=(i/Math.max(points.length-1,1))*svgW;
+      const y=svgH-(p.total/maxVal)*(svgH-6)-3;
       return `${x},${y}`;
     }).join(' ');
 
@@ -1247,12 +1012,12 @@ async function loadAnalytics() {
       <div class="chart-card">
         <div class="chart-title">Severity Distribution</div>
         <div class="donut-row">
-          <div class="donut-legend">${legendHTML || '<div style="color:var(--text-muted);font-size:12px">No data</div>'}</div>
+          <div class="donut-legend">${legendHTML||'<div style="color:var(--text-muted);font-size:12px">No data</div>'}</div>
         </div>
       </div>
       <div class="chart-card">
         <div class="chart-title">14-Day Incident Trend</div>
-        ${points.length > 1 ? `
+        ${points.length>1 ? `
           <svg class="sparkline" viewBox="0 0 ${svgW} ${svgH}" preserveAspectRatio="none">
             <polyline points="${sparkPts}" fill="none" stroke="var(--amber)" stroke-width="1.5" stroke-linejoin="round"/>
           </svg>
@@ -1264,235 +1029,12 @@ async function loadAnalytics() {
   }
 }
 
-// ── Tab switching ──────────────────────────────────────────────────────────────
-function switchTab(tab, el) {
-  document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
-  el.classList.add('active');
-  document.getElementById('tab-alerts').style.display    = tab === 'alerts'    ? 'flex' : 'none';
-  document.getElementById('tab-analytics').style.display = tab === 'analytics' ? 'block' : 'none';
-  if (tab === 'analytics') loadAnalytics();
-}
+// ══════════════════════════════════════════════════════════════════════════════
+// HELPERS
+// ══════════════════════════════════════════════════════════════════════════════
 
-// ── Filter ─────────────────────────────────────────────────────────────────────
-function setFilter(val, el) {
-  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-  el.classList.add('active');
-  if (['active','resolved','all'].includes(val)) { filterStatus = val; filterSev = null; }
-  else { filterSev = val; filterStatus = 'all'; }
-  loadAlerts();
-}
-
-// ── SCREAM EVENTS FUNCTIONS (NEW) ──────────────────────────────────────────
-async function loadScreamEvents() {
-  try {
-    const res = await fetch(`${API}/api/events/all`);
-    const data = await res.json();
-    
-    if (data.events && data.events.length > 0) {
-      screamEvents = data.events.map(event => ({
-        id: event.id,
-        device_id: event.device_id || 'Unknown',
-        location: event.location_id || 'Unknown',
-        timestamp: event.timestamp,
-        intensity: event.intensity || 0,
-        pitch: event.pitch || 0,
-        confidence: event.confidence_score || 0,
-        severity: event.confidence_score > 0.7 ? 'high' : 
-                  event.confidence_score > 0.4 ? 'medium' : 'low',
-        isScream: event.confidence_score > 0.5
-      }));
-      
-      screamEvents.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-      
-      renderScreamList();
-      updateScreamStats();
-      updateScreamBadge();
-      
-      // Check for new screams
-      if (screamEvents.length > lastScreamCount) {
-        const newEvent = screamEvents[0];
-        if (newEvent.isScream) {
-          // Show a toast for new scream
-          showScreamToast(newEvent);
-          playAlertSound(newEvent.severity);
-        }
-        lastScreamCount = screamEvents.length;
-      }
-      
-      // Auto-select first scream
-      if (!selectedScreamId && screamEvents.length > 0) {
-        selectScream(screamEvents[0].id);
-      }
-    } else {
-      document.getElementById('scream-list').innerHTML = 
-        '<div class="empty-state">No scream events yet</div>';
-    }
-  } catch(e) {
-    console.error('Error loading scream events:', e);
-    document.getElementById('scream-list').innerHTML = 
-      `<div class="empty-state">❌ Cannot connect to backend</div>`;
-  }
-}
-
-function showScreamToast(event) {
-  const container = document.getElementById('toast-container');
-  const toast = document.createElement('div');
-  toast.className = `toast ${event.severity}`;
-  toast.innerHTML = `
-    <div class="toast-header">
-      <span class="sev-badge ${event.severity}">🔴 SCREAM</span>
-      <span class="toast-title">📍 ${escHtml(event.location)}</span>
-      <button class="toast-dismiss" onclick="this.parentElement.parentElement.remove()">×</button>
-    </div>
-    <div class="toast-body">
-      ${(event.confidence * 100).toFixed(0)}% confidence · ${event.intensity.toFixed(1)} dB
-    </div>
-  `;
-  container.appendChild(toast);
-  setTimeout(() => toast.remove(), 8000);
-}
-
-function renderScreamList() {
-  const list = document.getElementById('scream-list');
-  
-  if (!screamEvents.length) {
-    list.innerHTML = '<div class="empty-state">No scream events yet</div>';
-    return;
-  }
-
-  // Show only screams (confidence > 0.5) or all if no screams
-  const screams = screamEvents.filter(e => e.isScream);
-  const displayEvents = screams.length > 0 ? screams : screamEvents;
-
-  list.innerHTML = displayEvents.map(e => {
-    const severityClass = e.severity;
-    const confidencePercent = (e.confidence * 100).toFixed(0);
-    const isScream = e.isScream;
-    
-    return `
-      <div class="alert-card ${severityClass} ${selectedScreamId === e.id ? 'active' : ''}"
-           onclick="selectScream('${e.id}')">
-        <div class="alert-card-top">
-          <span class="sev-badge ${severityClass}">
-            ${isScream ? '🔴 SCREAM' : '⚪ NOISE'}
-          </span>
-          <span class="alert-card-location">📍 ${escHtml(e.location)}</span>
-          <span class="alert-card-time">${formatTime(e.timestamp)}</span>
-        </div>
-        <div class="alert-card-details">
-          <span>🔊 ${e.intensity.toFixed(1)} dB</span>
-          <span>🎵 ${e.pitch.toFixed(0)} Hz</span>
-          <span>📊 ${confidencePercent}%</span>
-        </div>
-      </div>
-    `;
-  }).join('');
-}
-
-function selectScream(id) {
-  selectedScreamId = id;
-  renderScreamList();
-  
-  const event = screamEvents.find(e => e.id === id);
-  if (event) {
-    renderScreamDetail(event);
-  }
-}
-
-function renderScreamDetail(event) {
-  const confidencePercent = (event.confidence * 100).toFixed(0);
-  const isScream = event.confidence > 0.5;
-  const severityClass = event.severity;
-  
-  document.getElementById('scream-detail-panel').innerHTML = `
-    <div class="detail-header">
-      <div>
-        <div class="detail-title">
-          ${isScream ? '🔴' : '⚪'} ${escHtml(event.location)}
-        </div>
-        <div class="detail-meta">
-          <span class="sev-badge ${severityClass}">
-            ${isScream ? 'SCREAM DETECTED' : 'NOISE EVENT'}
-          </span>
-          <span class="meta-pill">${formatDateTime(event.timestamp)}</span>
-          <span class="meta-pill">Device: ${escHtml(event.device_id)}</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="score-section">
-      <div class="score-label">Scream Detection Confidence</div>
-      <div class="score-row">
-        <div class="score-bar-track">
-          <div class="score-bar-fill ${severityClass}" style="width:${confidencePercent}%"></div>
-        </div>
-        <div class="score-value">${confidencePercent}%</div>
-      </div>
-    </div>
-
-    <div class="scream-detail-grid">
-      <div class="detail-field">
-        <div class="field-label">Intensity</div>
-        <div class="field-value">${event.intensity.toFixed(1)} dB</div>
-      </div>
-      <div class="detail-field">
-        <div class="field-label">Pitch Frequency</div>
-        <div class="field-value">${event.pitch.toFixed(0)} Hz</div>
-      </div>
-      <div class="detail-field">
-        <div class="field-label">Status</div>
-        <div class="field-value" style="color:${isScream ? 'var(--red)' : 'var(--text-secondary)'}">
-          ${isScream ? '🚨 SCREAM' : 'Normal Sound'}
-        </div>
-      </div>
-    </div>
-
-    <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;margin-top:8px;">
-      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-family:var(--font-mono);margin-bottom:8px;">
-        📊 Analysis Summary
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
-        <div>
-          <div style="font-size:10px;color:var(--text-muted);">Classification</div>
-          <div style="font-size:14px;font-weight:600;color:${isScream ? 'var(--red)' : 'var(--text-secondary)'}">
-            ${isScream ? '🔴 SCREAM' : '⚪ NORMAL'}
-          </div>
-        </div>
-        <div>
-          <div style="font-size:10px;color:var(--text-muted);">Confidence</div>
-          <div style="font-size:14px;font-weight:600;">${confidencePercent}%</div>
-        </div>
-        <div>
-          <div style="font-size:10px;color:var(--text-muted);">Severity</div>
-          <div style="font-size:14px;font-weight:600;text-transform:uppercase;color:var(--${severityClass === 'high' ? 'red' : severityClass === 'medium' ? 'amber' : 'teal'})">
-            ${severityClass}
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-function updateScreamStats() {
-  const total = screamEvents.length;
-  const high = screamEvents.filter(e => e.confidence > 0.7).length;
-  const medium = screamEvents.filter(e => e.confidence > 0.4 && e.confidence <= 0.7).length;
-  const low = screamEvents.filter(e => e.confidence <= 0.4).length;
-  
-  document.getElementById('scream-total').textContent = total;
-  document.getElementById('scream-high').textContent = high;
-  document.getElementById('scream-medium').textContent = medium;
-  document.getElementById('scream-low').textContent = low;
-}
-
-function updateScreamBadge() {
-  const screams = screamEvents.filter(e => e.isScream);
-  document.getElementById('scream-badge').textContent = screams.length;
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 function escHtml(s) {
-  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 const KEYWORDS = ['bodoh','babi','sial','mati','pergi mampus','bangang','stupid','loser','shut up','kill','hurt','go die'];
@@ -1507,39 +1049,24 @@ function highlightKeywords(text) {
 
 function formatTime(iso) {
   if (!iso) return '—';
-  try {
-    const d = new Date(iso);
-    return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-  } catch(_) { return '—'; }
+  try { return new Date(iso).toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'}); }
+  catch(_) { return '—'; }
 }
-
 function formatDateTime(iso) {
   if (!iso) return '—';
-  try {
-    const d = new Date(iso);
-    return d.toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
-  } catch(_) { return '—'; }
+  try { return new Date(iso).toLocaleString('en-GB', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}); }
+  catch(_) { return '—'; }
 }
 
-// ── Init ───────────────────────────────────────────────────────────────────────
-function init() {
-  connectWS();
-  loadAlerts();
-  loadStats();
-  loadScreamEvents();
-  
-  // Auto-refresh
-  setInterval(loadAlerts, 30000);
-  setInterval(loadStats, 15000);
-  setInterval(loadScreamEvents, 5000);
-}
+// ── Init ──────────────────────────────────────────────────────────────────────
+connectWS();
+loadAlerts();
+loadStats();
+loadScreamEvents();
 
-// Start the dashboard
-init();
-
-console.log('🔊 SAMS Dashboard loaded!');
-console.log(`📡 API: ${API}`);
-console.log(`🔌 WebSocket: ${WS_URL}`);
+setInterval(loadAlerts,      30000);
+setInterval(loadStats,       15000);
+setInterval(loadScreamEvents, 5000);
 </script>
 </body>
 </html>

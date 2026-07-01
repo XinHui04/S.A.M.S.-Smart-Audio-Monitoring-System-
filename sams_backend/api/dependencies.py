@@ -21,16 +21,19 @@ _engine         = create_db_engine(database_url=cfg.database_url, sqlite_path=cf
 _SessionFactory = get_session_factory(_engine)
 
 _audio_capture  = AudioCaptureService(
-    storage_dir       = cfg.audio_storage_dir,
-    vad_threshold     = cfg.vad_energy_threshold,
-    max_duration_secs = cfg.max_audio_duration,
+    # storage_dir       = cfg.audio_storage_dir,
+    # vad_threshold     = cfg.vad_energy_threshold,
+    # max_duration_secs = cfg.max_audio_duration,
+    supabase_url = cfg.supabase_url,
+    supabase_key = cfg.supabase_service_key,
+    bucket_name  = cfg.supabase_bucket,
 )
 _audio_storage  = AudioStorageService(
     backend      = cfg.storage_backend,
     storage_dir  = cfg.audio_storage_dir,
     supabase_url = cfg.supabase_url,
     supabase_key = cfg.supabase_service_key,
-    bucket       = cfg.supabase_bucket,
+    bucket_name  = cfg.supabase_bucket,
 )
 _stt        = STTService(api_key=cfg.groq_api_key)   # Groq free API
 _nlp        = NLPService(model_name=cfg.nlp_model, threshold=cfg.threat_score_threshold)

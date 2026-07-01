@@ -199,16 +199,29 @@ class ScreamAnalyzer:
            
             if riff == b'RIFF' and wave == b'WAVE':
                 # Valid WAV - try to read with soundfile
+                # try:
+                #     with tempfile.NamedTemporaryFile(suffix='.wav', delete=True) as tmp:
+                #         tmp.write(audio_bytes)
+                #         tmp.flush()
+                #         audio, sr = sf.read(tmp.name)
+                # except Exception as e:
+                #     logger.warning(f"soundfile failed, reading raw PCM: {e}")
+                #     # Read raw PCM from offset 44
+                #     audio = np.frombuffer(audio_bytes[44:], dtype=np.int16).astype(np.float32) / 32768.0
+                #     sr = SAMPLE_RATE
+                tmp_path = None
                 try:
-                    with tempfile.NamedTemporaryFile(suffix='.wav', delete=True) as tmp:
+                    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
                         tmp.write(audio_bytes)
-                        tmp.flush()
-                        audio, sr = sf.read(tmp.name)
+                        tmp_path = tmp.name
+                    audio, sr = sf.read(tmp_path)   # file is closed now, safe to read
                 except Exception as e:
                     logger.warning(f"soundfile failed, reading raw PCM: {e}")
-                    # Read raw PCM from offset 44
                     audio = np.frombuffer(audio_bytes[44:], dtype=np.int16).astype(np.float32) / 32768.0
                     sr = SAMPLE_RATE
+                finally:
+                    if tmp_path and os.path.exists(tmp_path):
+                        os.remove(tmp_path)
             else:
                 # Read as raw PCM
                 logger.info("Reading as raw PCM")
@@ -264,17 +277,30 @@ class ScreamAnalyzer:
            
             if riff == b'RIFF' and wave == b'WAVE':
                 # Valid WAV file - try to read with soundfile first
+                # try:
+                #     with tempfile.NamedTemporaryFile(suffix='.wav', delete=True) as tmp:
+                #         tmp.write(audio_bytes)
+                #         tmp.flush()
+                #         audio, sr = sf.read(tmp.name)
+                # except Exception as e:
+                #     logger.warning(f"soundfile failed, reading raw PCM: {e}")
+                #     # Read raw PCM from the data chunk
+                #     # WAV header is 44 bytes, data starts at offset 44
+                #     audio = np.frombuffer(audio_bytes[44:], dtype=np.int16).astype(np.float32) / 32768.0
+                #     sr = SAMPLE_RATE
+                tmp_path = None
                 try:
-                    with tempfile.NamedTemporaryFile(suffix='.wav', delete=True) as tmp:
+                    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
                         tmp.write(audio_bytes)
-                        tmp.flush()
-                        audio, sr = sf.read(tmp.name)
+                        tmp_path = tmp.name
+                    audio, sr = sf.read(tmp_path)   # file is closed now, safe to read
                 except Exception as e:
                     logger.warning(f"soundfile failed, reading raw PCM: {e}")
-                    # Read raw PCM from the data chunk
-                    # WAV header is 44 bytes, data starts at offset 44
                     audio = np.frombuffer(audio_bytes[44:], dtype=np.int16).astype(np.float32) / 32768.0
                     sr = SAMPLE_RATE
+                finally:
+                    if tmp_path and os.path.exists(tmp_path):
+                        os.remove(tmp_path)
             else:
                 # Not a valid WAV - try to read as raw PCM
                 logger.info("Reading as raw PCM (no WAV header)")

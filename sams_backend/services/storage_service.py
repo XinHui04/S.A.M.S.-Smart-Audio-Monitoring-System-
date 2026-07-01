@@ -32,13 +32,13 @@ class AudioStorageService:
         storage_dir:  str = "./audio_storage",
         supabase_url: str = "",
         supabase_key: str = "",
-        bucket:       str = "audio-clips",
+        bucket_name:  str = "audio-clips",
     ):
         self.backend     = (backend or "local").lower()
         self.storage_dir = storage_dir
         self.supabase_url = supabase_url
         self.supabase_key = supabase_key
-        self.bucket       = bucket
+        self.bucket_name = bucket_name
         self._client      = None   # lazy Supabase client
 
         os.makedirs(self.storage_dir, exist_ok=True)
