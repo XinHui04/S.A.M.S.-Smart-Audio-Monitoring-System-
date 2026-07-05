@@ -72,6 +72,13 @@ class ScreamAnalyzer:
 
 
         # ==================================================
+        # Defensive guard: this method needs tf.signal.*
+        # ==================================================
+        if not TFLITE_AVAILABLE:
+            raise RuntimeError("TensorFlow not available — cannot extract features")
+
+
+        # ==================================================
         # FIX #2
         # Match training duration exactly (1 second)
         # ==================================================
@@ -327,10 +334,16 @@ class ScreamAnalyzer:
             logger.info(f"Audio loaded: {len(audio)} samples, sr={sr}")
            
             # ── Extract features ──────────────────────────────────────────────────
-            features = self._extract_features(audio)
-           
+            # FIX: feature extraction uses tf.signal.* and crashed with
+            # NameError("name 'tf' is not defined") when TensorFlow is not
+            # installed, so the RMS fallback below was unreachable. Features are
+            # now extracted only when the model is loaded.
+            # features = self._extract_features(audio)
+
             # ── Run inference ─────────────────────────────────────────────────────
             if self.model is not None:
+                features = self._extract_features(audio)
+
                 try:
                     logger.info(
                         f"Input shape: {features.shape}"

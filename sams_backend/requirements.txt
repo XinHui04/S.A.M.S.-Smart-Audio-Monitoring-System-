@@ -12,6 +12,9 @@ soundfile==0.12.1
 numpy==1.26.4
 # librosa 0.10.1 imports pkg_resources, which setuptools>=81 removed
 setuptools<81
+# Cloud-side TFLite scream model (services/scream_analyzer.py) — tf.signal features
+# + tf.lite.Interpreter. Compatible with numpy 1.26.4 pinned above.
+tensorflow==2.16.1
 
 # Module 2: Cloud Processing & AI Analysis
 # STT — Groq API (free, no credit card, Whisper Large v3)
