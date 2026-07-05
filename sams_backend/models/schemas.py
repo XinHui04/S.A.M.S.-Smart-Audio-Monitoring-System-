@@ -69,6 +69,10 @@ class AlertResolveRequest(BaseModel):
 
 # ─── Auth ────────────────────────────────────────────────────────────────────
 
+class LoginRequest(BaseModel):
+    email:    str = Field(..., description="Registered staff/admin email")
+    password: str = Field(..., min_length=1, description="Plaintext password (verified against bcrypt hash)")
+
 class UserCreate(BaseModel):
     name:     str
     email:    str

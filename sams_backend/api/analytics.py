@@ -9,14 +9,14 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 from datetime import datetime, timedelta
 
-from models.database import Event, Alert, Device, Location
-from api.dependencies import get_db
+from models.database import Event, Alert, Device, Location, User
+from api.dependencies import get_db, get_current_user
 
 router = APIRouter(prefix="/api/analytics", tags=["Module 3 — Reporting & Analytics"])
 
 
 @router.get("/hotspots", summary="Top high-risk locations")
-async def hotspots(limit: int = Query(5, ge=1, le=20), db: Session = Depends(get_db)):
+async def hotspots(limit: int = Query(5, ge=1, le=20), db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     rows = (
         db.query(
             Location.location_id,
@@ -38,7 +38,7 @@ async def hotspots(limit: int = Query(5, ge=1, le=20), db: Session = Depends(get
 
 
 @router.get("/trends", summary="Daily incident counts (last N days)")
-async def trends(days: int = Query(30, ge=7, le=90), db: Session = Depends(get_db)):
+async def trends(days: int = Query(30, ge=7, le=90), db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     since = datetime.utcnow() - timedelta(days=days)
     rows  = (
         db.query(
@@ -62,7 +62,7 @@ async def trends(days: int = Query(30, ge=7, le=90), db: Session = Depends(get_d
 
 
 @router.get("/severity-breakdown", summary="Severity distribution for pie chart")
-async def severity_breakdown(db: Session = Depends(get_db)):
+async def severity_breakdown(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     rows = (
         db.query(Alert.severity, func.count(Alert.alert_id).label("count"))
         .group_by(Alert.severity)

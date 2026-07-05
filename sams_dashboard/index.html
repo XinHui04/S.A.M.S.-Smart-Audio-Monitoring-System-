@@ -422,6 +422,92 @@
   .detail-field { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; }
   .field-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 2px; }
   .field-value { font-size: 13px; color: var(--text-primary); font-family: var(--font-mono); }
+
+  /* ── Login overlay ───────────────────────────────────────────────────────── */
+  .login-overlay {
+    position: fixed; inset: 0; z-index: 500;
+    background: var(--bg-base);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .login-overlay.hidden { display: none; }
+  .login-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 32px 28px;
+    width: 100%; max-width: 360px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .login-logo {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    font-size: 18px; font-weight: 600; letter-spacing: -0.3px;
+    margin-bottom: 4px;
+  }
+  .login-logo svg { color: var(--amber); }
+  .login-sub {
+    text-align: center; color: var(--text-secondary);
+    font-size: 12px; margin-top: -10px; margin-bottom: 8px;
+  }
+  .login-field label {
+    display: block; font-size: 11px; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.5px;
+    font-family: var(--font-mono); margin-bottom: 4px;
+  }
+  .login-field input {
+    width: 100%;
+    background: var(--bg-base);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    font-family: var(--font-ui); font-size: 13px;
+    padding: 8px 10px; outline: none;
+    transition: border-color 0.15s;
+  }
+  .login-field input:focus { border-color: var(--amber); }
+  .login-btn {
+    padding: 9px 14px;
+    background: var(--amber); color: #000;
+    border: none; border-radius: var(--radius);
+    font-size: 13px; font-weight: 600; cursor: pointer;
+    font-family: var(--font-ui);
+    transition: opacity 0.15s;
+  }
+  .login-btn:hover    { opacity: 0.85; }
+  .login-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .login-error {
+    color: var(--red); font-size: 12px;
+    min-height: 18px; text-align: center;
+  }
+  .login-hint {
+    font-size: 11px; color: var(--text-muted);
+    font-family: var(--font-mono); text-align: center;
+    line-height: 1.7;
+    border-top: 1px solid var(--border-subtle);
+    padding-top: 10px;
+  }
+
+  /* ── User chip ───────────────────────────────────────────────────────────── */
+  .user-chip {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--text-secondary);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    padding: 3px 10px;
+  }
+  .user-chip .user-name { color: var(--text-primary); font-weight: 500; }
+  .user-chip .user-role {
+    font-family: var(--font-mono); font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--amber);
+  }
+  .signout-btn {
+    background: none; border: none; cursor: pointer;
+    color: var(--text-muted); font-size: 11px;
+    font-family: var(--font-ui); padding: 0;
+    transition: color 0.15s;
+  }
+  .signout-btn:hover { color: var(--red); }
 </style>
 </head>
 <body>
@@ -438,6 +524,11 @@
       <span class="sub">Smart Audio Monitoring System</span>
     </div>
     <div class="topbar-spacer"></div>
+    <div class="user-chip" id="user-chip" style="display:none">
+      <span class="user-name" id="user-name"></span>
+      <span class="user-role" id="user-role"></span>
+      <button class="signout-btn" onclick="signOut()" title="Sign out">Sign out</button>
+    </div>
     <div class="ws-badge">
       <div class="ws-dot" id="ws-dot"></div>
       <span id="ws-status">Connecting…</span>
@@ -523,6 +614,35 @@
 <!-- Toast container -->
 <div id="toast-container"></div>
 
+<!-- ── Login overlay ─────────────────────────────────────────────────────── -->
+<div class="login-overlay" id="login-overlay">
+  <form class="login-card" id="login-form" autocomplete="off">
+    <div class="login-logo">
+      <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/>
+      </svg>
+      S.A.M.S.
+    </div>
+    <div class="login-sub">Smart Audio Monitoring System — Staff Sign In</div>
+    <div class="login-field">
+      <label for="login-email">Email</label>
+      <input type="email" id="login-email" required autocomplete="username" placeholder="you@school.edu.my">
+    </div>
+    <div class="login-field">
+      <label for="login-password">Password</label>
+      <input type="password" id="login-password" required autocomplete="current-password" placeholder="••••••••">
+    </div>
+    <div class="login-error" id="login-error"></div>
+    <button type="submit" class="login-btn" id="login-btn">Sign In</button>
+    <div class="login-hint">
+      Demo accounts:<br>
+      admin@school.edu.my / Admin@1234<br>
+      siti@school.edu.my / Staff@1234
+    </div>
+  </form>
+</div>
+
 <script>
 // ── Config ────────────────────────────────────────────────────────────────────
 const API   = 'http://localhost:8000';
@@ -535,6 +655,114 @@ let filterStatus = 'active';
 let filterSev    = null;
 let ws           = null;
 let currentAudio = null;
+let appStarted   = false;   // intervals set up only once
+let wsHeartbeat  = null;
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+const TOKEN_KEY = 'sams_token';
+const USER_KEY  = 'sams_user';
+
+function getToken() { return sessionStorage.getItem(TOKEN_KEY); }
+
+function getUser() {
+  try { return JSON.parse(sessionStorage.getItem(USER_KEY) || 'null'); }
+  catch(_) { return null; }
+}
+
+// Fetch wrapper: injects Authorization header, bounces to login on 401
+async function authFetch(url, opts = {}) {
+  const token = getToken();
+  const headers = Object.assign({}, opts.headers || {},
+    token ? { 'Authorization': `Bearer ${token}` } : {});
+  const res = await fetch(url, Object.assign({}, opts, { headers }));
+  if (res.status === 401) {
+    clearSession();
+    showLogin();
+    throw new Error('Unauthorized');
+  }
+  return res;
+}
+
+function clearSession() {
+  sessionStorage.removeItem(TOKEN_KEY);
+  sessionStorage.removeItem(USER_KEY);
+  if (ws) {
+    ws.onclose = null;           // prevent reconnect loop
+    try { ws.close(); } catch(_) {}
+    ws = null;
+  }
+  if (wsHeartbeat) { clearInterval(wsHeartbeat); wsHeartbeat = null; }
+}
+
+function showLogin() {
+  document.getElementById('login-overlay').classList.remove('hidden');
+  document.getElementById('user-chip').style.display = 'none';
+  document.getElementById('ws-dot').className = 'ws-dot';
+  document.getElementById('ws-status').textContent = 'Signed out';
+  const err = document.getElementById('login-error');
+  if (err) err.textContent = '';
+}
+
+function signOut() {
+  clearSession();
+  alerts = []; selectedId = null;
+  showLogin();
+}
+
+function renderUserChip() {
+  const user = getUser();
+  const chip = document.getElementById('user-chip');
+  if (!user) { chip.style.display = 'none'; return; }
+  // textContent only — user-derived strings must never hit innerHTML
+  document.getElementById('user-name').textContent = user.name || user.email || '';
+  document.getElementById('user-role').textContent = user.role || '';
+  chip.style.display = 'flex';
+}
+
+function startApp() {
+  document.getElementById('login-overlay').classList.add('hidden');
+  renderUserChip();
+  connectWS();
+  loadAlerts();
+  loadStats();
+  if (!appStarted) {
+    appStarted = true;
+    setInterval(() => { if (getToken()) loadAlerts(); }, 30000);
+    setInterval(() => { if (getToken()) loadStats();  }, 15000);
+  }
+}
+
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email    = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl    = document.getElementById('login-error');
+  const btn      = document.getElementById('login-btn');
+  errEl.textContent = '';
+  btn.disabled = true; btn.textContent = 'Signing in…';
+  try {
+    const res = await fetch(`${API}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      sessionStorage.setItem(TOKEN_KEY, data.access_token);
+      sessionStorage.setItem(USER_KEY, JSON.stringify(data.user || {}));
+      document.getElementById('login-password').value = '';
+      startApp();
+    } else {
+      let detail = 'Invalid email or password';
+      try { detail = (await res.json()).detail || detail; } catch(_) {}
+      errEl.textContent = detail;
+    }
+  } catch(_) {
+    errEl.textContent = 'Could not reach API — is the backend running?';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Sign In';
+  }
+});
 
 // ── Clock ─────────────────────────────────────────────────────────────────────
 function updateClock() {
@@ -546,13 +774,16 @@ updateClock();
 
 // ── WebSocket ─────────────────────────────────────
 function connectWS() {
-  ws = new WebSocket(WS_URL);
+  const token = getToken();
+  if (!token) return;
+  ws = new WebSocket(`${WS_URL}?token=${encodeURIComponent(token)}`);
 
   ws.onopen = () => {
     document.getElementById('ws-dot').className    = 'ws-dot connected';
     document.getElementById('ws-status').textContent = 'Live';
-    // Heartbeat
-    setInterval(() => ws.readyState === 1 && ws.send('ping'), 25000);
+    // Heartbeat (single interval; cleared on close/sign-out)
+    if (wsHeartbeat) clearInterval(wsHeartbeat);
+    wsHeartbeat = setInterval(() => ws && ws.readyState === 1 && ws.send('ping'), 25000);
   };
 
   ws.onmessage = (e) => {
@@ -562,10 +793,17 @@ function connectWS() {
     }
   };
 
-  ws.onclose = () => {
+  ws.onclose = (e) => {
+    if (wsHeartbeat) { clearInterval(wsHeartbeat); wsHeartbeat = null; }
+    if (e.code === 4401) {
+      // Server rejected the token — back to login, no reconnect loop
+      clearSession();
+      showLogin();
+      return;
+    }
     document.getElementById('ws-dot').className    = 'ws-dot error';
     document.getElementById('ws-status').textContent = 'Reconnecting…';
-    setTimeout(connectWS, 3000);
+    setTimeout(() => { if (getToken()) connectWS(); }, 3000);
   };
 
   ws.onerror = () => {
@@ -634,7 +872,7 @@ async function loadAlerts() {
     const sev    = filterSev ? `&severity=${filterSev}` : '';
     const status = filterStatus === 'high' || filterStatus === 'medium' || filterStatus === 'low'
                    ? 'all' : filterStatus;
-    const res  = await fetch(`${API}/api/alerts/?status=${status}${sev}&per_page=50`);
+    const res  = await authFetch(`${API}/api/alerts/?status=${status}${sev}&per_page=50`);
     const data = await res.json();
     alerts = data.alerts || [];
     renderAlertList();
@@ -646,7 +884,7 @@ async function loadAlerts() {
 
 async function loadStats() {
   try {
-    const res  = await fetch(`${API}/api/alerts/stats`);
+    const res  = await authFetch(`${API}/api/alerts/stats`);
     const data = await res.json();
     document.getElementById('stat-active').textContent   = data.active_alerts ?? '—';
     document.getElementById('stat-high').textContent     = data.high ?? '—';
@@ -699,7 +937,7 @@ async function selectAlert(alertId) {
 
   // Then fetch full detail from API
   try {
-    const res  = await fetch(`${API}/api/alerts/${alertId}`);
+    const res  = await authFetch(`${API}/api/alerts/${alertId}`);
     const data = await res.json();
     renderDetail(data);
   } catch(_) {}
@@ -770,7 +1008,7 @@ function renderDetail(alert) {
     ${alert.audio_url ? `
     <div class="audio-section">
       <div class="audio-player">
-        <button class="audio-play-btn" onclick="toggleAudio('${API}${alert.audio_url}', this)" title="Play audio">
+        <button class="audio-play-btn" onclick="toggleAudio('${audioUrlWithToken(alert.audio_url)}', this)" title="Play audio">
           <svg id="play-icon" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
             <path d="M11.596 8.697L4.604 12.5A.5.5 0 0 1 4 12V4a.5.5 0 0 1 .604-.5l6.992 3.803a.5.5 0 0 1 0 .894z"/>
           </svg>
@@ -805,6 +1043,14 @@ function renderDetail(alert) {
   `;
 }
 
+// <audio>/Audio() cannot send headers, so the token rides as a query param
+function audioUrlWithToken(audioUrl) {
+  const token = getToken();
+  if (!token) return `${API}${audioUrl}`;
+  const sep = audioUrl.includes('?') ? '&' : '?';
+  return `${API}${audioUrl}${sep}token=${encodeURIComponent(token)}`;
+}
+
 // ── Audio playback ─────────────────────────────────────────────────────────────
 async function toggleAudio(url, btn) {
   if (currentAudio && !currentAudio.paused) {
@@ -837,7 +1083,7 @@ async function resolveAlert(alertId) {
   btn.disabled = true; btn.textContent = 'Saving…';
 
   try {
-    const res = await fetch(`${API}/api/alerts/${alertId}/resolve`, {
+    const res = await authFetch(`${API}/api/alerts/${alertId}/resolve`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ resolution_notes: notes }),
@@ -859,9 +1105,9 @@ async function loadAnalytics() {
   const panel = document.getElementById('analytics-content');
   try {
     const [hotRes, sevRes, trendRes] = await Promise.all([
-      fetch(`${API}/api/analytics/hotspots`),
-      fetch(`${API}/api/analytics/severity-breakdown`),
-      fetch(`${API}/api/analytics/trends?days=14`),
+      authFetch(`${API}/api/analytics/hotspots`),
+      authFetch(`${API}/api/analytics/severity-breakdown`),
+      authFetch(`${API}/api/analytics/trends?days=14`),
     ]);
     const hot   = await hotRes.json();
     const sev   = await sevRes.json();
@@ -967,11 +1213,13 @@ function formatDateTime(iso) {
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────────
-connectWS();
-loadAlerts();
-loadStats();
-setInterval(loadAlerts, 30000);
-setInterval(loadStats,  15000);
+// Only boot the app if a token already exists (e.g. page refresh mid-session);
+// otherwise show the login view and wait.
+if (getToken()) {
+  startApp();
+} else {
+  showLogin();
+}
 </script>
 </body>
 </html>

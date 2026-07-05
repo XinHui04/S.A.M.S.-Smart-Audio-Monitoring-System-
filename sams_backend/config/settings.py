@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     # Module 4 — Main Computer Monitoring System
     websocket_ping_interval: int = 30
 
+    # Auth — JWT login for dashboard/staff endpoints (FR23)
+    jwt_secret_key:              str = ""       # REQUIRED for auth — set in .env, never commit
+    jwt_algorithm:               str = "HS256"
+    access_token_expire_minutes: int = 480
+    device_api_key:              str = ""       # opt-in — when set, ESP32 ingestion endpoints require X-API-Key
+
     # Module 4 — MQTT publisher (real-time alert fan-out; Figs 4.1/4.2)
     # Opt-in: leave mqtt_enabled False to run without a broker.
     mqtt_enabled:     bool = False

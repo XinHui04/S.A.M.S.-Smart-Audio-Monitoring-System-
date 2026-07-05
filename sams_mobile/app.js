@@ -12,17 +12,18 @@
      PUT  /api/alerts/{id}/resolve                   → resolve w/ notes
      WS   /ws/dashboard                              → live alert push
 
-   NOTE: the login screen is a UI SHELL only. It stores a display name + role
-   in localStorage so the app has an identity to show; it does NOT yet
-   authenticate against the backend. Real JWT login + RBAC (FR23) is a separate
-   planned iteration. No password is ever stored.
+   AUTH (FR23): real JWT login against POST /api/auth/login. The returned
+   access token + user profile are kept in localStorage; every /api call sends
+   `Authorization: Bearer <token>` (via authFetch), the WebSocket appends
+   `?token=`, and audio URLs get a `?token=` query fallback. A 401 anywhere
+   (or WS close 4401) signs the user out. No password is ever stored.
    ────────────────────────────────────────────────────────────────────────── */
 
 'use strict';
 
 // ── Config (same origin as the backend that serves this PWA) ────────────────
 const API    = '';  // relative → same host:port as the page
-const WS_URL = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/dashboard`;
+const WS_BASE = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/dashboard`;
 const SESSION_KEY = 'sams.teacher.session';
 
 // ── State ───────────────────────────────────────────────────────────────────
@@ -41,27 +42,80 @@ function escHtml(s) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-// ── Session / login shell ───────────────────────────────────────────────────
+// ── Session / JWT auth ──────────────────────────────────────────────────────
 function loadSession() {
   try { session = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); }
   catch { session = null; }
+  // Reject the pre-auth {name, role} shape (or anything else without a JWT).
+  if (!session?.token || !session?.user) session = null;
 }
 
-function login(ev) {
+function showLoginError(text) {
+  const el = $('login-error');
+  el.textContent = text;   // textContent — never inject server text as HTML
+  el.hidden = !text;
+}
+
+async function login(ev) {
   ev.preventDefault();
-  const name = $('login-name').value.trim() || 'Teacher';
-  const role = $('login-role').value;
-  session = { name, role, since: new Date().toISOString() };
-  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-  startApp();
+  const email    = $('login-email').value.trim();
+  const password = $('login-password').value;
+  const btn = $('login-submit');
+  showLoginError('');
+  btn.disabled = true; btn.textContent = 'Signing in…';
+  try {
+    const res = await fetch(`${API}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!res.ok) {
+      let detail = 'Invalid email or password';
+      try { detail = (await res.json()).detail || detail; } catch {}
+      showLoginError(res.status === 401 ? detail : 'Sign-in failed. Please try again.');
+      return;
+    }
+    const data = await res.json();
+    // Store the token + user profile only — the password is never persisted.
+    session = { token: data.access_token, user: data.user, since: new Date().toISOString() };
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    $('login-password').value = '';
+    startApp();
+  } catch {
+    showLoginError('Can’t reach the server. Check your connection.');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Sign in';
+  }
 }
 
 function logout() {
-  localStorage.removeItem(SESSION_KEY);
+  localStorage.removeItem(SESSION_KEY);   // drops the JWT along with the profile
   session = null;
   if (ws) { try { ws.onclose = null; ws.close(); } catch {} ws = null; }
+  if (currentAudio) { try { currentAudio.pause(); } catch {} currentAudio = null; }
   $('app').hidden = true;
   $('login-view').hidden = false;
+}
+
+// ── Authenticated fetch ─────────────────────────────────────────────────────
+// Adds the Bearer token to every API call; a 401 means the token is expired
+// or revoked, so we sign out back to the login view.
+async function authFetch(url, options = {}) {
+  const headers = { ...(options.headers || {}) };
+  if (session?.token) headers['Authorization'] = `Bearer ${session.token}`;
+  const res = await fetch(url, { ...options, headers });
+  if (res.status === 401) {
+    logout();
+    throw new Error('unauthorized');
+  }
+  return res;
+}
+
+// Appends the JWT as a query param — for URLs the browser fetches itself
+// (Audio element, WebSocket) where we can’t set an Authorization header.
+function withToken(url) {
+  if (!session?.token) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(session.token)}`;
 }
 
 // ── Boot ────────────────────────────────────────────────────────────────────
@@ -81,7 +135,7 @@ function init() {
 function startApp() {
   $('login-view').hidden = true;
   $('app').hidden = false;
-  $('who').textContent = `${session.name} · ${session.role}`;
+  $('who').textContent = `${session.user.name} · ${session.user.role}`;
   connectWS();
   loadAlerts();
   loadStats();
@@ -93,7 +147,8 @@ function startApp() {
 
 // ── WebSocket live feed ─────────────────────────────────────────────────────
 function connectWS() {
-  ws = new WebSocket(WS_URL);
+  if (!session?.token) return;
+  ws = new WebSocket(withToken(WS_BASE));
   ws.onopen = () => {
     setWs('connected', 'Live');
     setInterval(() => ws.readyState === 1 && ws.send('ping'), 25000);
@@ -102,7 +157,12 @@ function connectWS() {
     let msg; try { msg = JSON.parse(e.data); } catch { return; }
     if (msg.type === 'ALERT') handleIncomingAlert(msg);
   };
-  ws.onclose = () => { setWs('error', 'Reconnecting…'); setTimeout(connectWS, 3000); };
+  ws.onclose = (e) => {
+    // 4401 = server rejected the token — sign out instead of reconnecting
+    // in a loop with dead credentials.
+    if (e.code === 4401) { logout(); return; }
+    setWs('error', 'Reconnecting…'); setTimeout(connectWS, 3000);
+  };
   ws.onerror = () => setWs('error', 'Offline');
 }
 
@@ -162,7 +222,7 @@ function beep(severity) {
 async function loadAlerts() {
   try {
     const sev = filterSev ? `&severity=${encodeURIComponent(filterSev)}` : '';
-    const res = await fetch(`${API}/api/alerts/?status=${encodeURIComponent(filterStatus)}${sev}&per_page=50`);
+    const res = await authFetch(`${API}/api/alerts/?status=${encodeURIComponent(filterStatus)}${sev}&per_page=50`);
     const data = await res.json();
     alerts = data.alerts || [];
     renderList();
@@ -173,7 +233,7 @@ async function loadAlerts() {
 
 async function loadStats() {
   try {
-    const res = await fetch(`${API}/api/alerts/stats`);
+    const res = await authFetch(`${API}/api/alerts/stats`);
     const d = await res.json();
     $('stat-active').textContent = d.active_alerts ?? '—';
     $('stat-high').textContent   = d.high ?? '—';
@@ -213,7 +273,7 @@ async function selectAlert(alertId) {
   if (cached) renderDetail(cached);
   openDetail();
   try {
-    const res = await fetch(`${API}/api/alerts/${encodeURIComponent(alertId)}`);
+    const res = await authFetch(`${API}/api/alerts/${encodeURIComponent(alertId)}`);
     if (res.ok) renderDetail(await res.json());
   } catch {}
 }
@@ -276,7 +336,9 @@ function renderDetail(a) {
     </div>`;
 
   if (a.audio_url) {
-    $('play-btn').addEventListener('click', (e) => toggleAudio(`${API}${a.audio_url}`, e.currentTarget));
+    // Audio is fetched by the <audio> element itself (no headers), so the JWT
+    // rides along as the backend’s ?token= query fallback.
+    $('play-btn').addEventListener('click', (e) => toggleAudio(withToken(`${API}${a.audio_url}`), e.currentTarget));
   }
   if (!isRes) {
     $('resolve-btn').addEventListener('click', () => resolveAlert(a.alert_id));
@@ -311,7 +373,7 @@ async function resolveAlert(alertId) {
   const btn = $('resolve-btn');
   btn.disabled = true; btn.textContent = 'Saving…';
   try {
-    const res = await fetch(`${API}/api/alerts/${encodeURIComponent(alertId)}/resolve`, {
+    const res = await authFetch(`${API}/api/alerts/${encodeURIComponent(alertId)}/resolve`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ resolution_notes: notes }),
