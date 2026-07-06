@@ -55,7 +55,10 @@ class NLPService:
 
     def __init__(
         self,
-        model_name: str   = "cardiffnlp/twitter-xlm-roberta-base-offensive",
+        # Multilingual XLM-R toxicity model (labels: toxic/neutral). XLM-R BASE
+        # architecture despite the repo name. English-only alternative:
+        # "cardiffnlp/twitter-roberta-base-offensive" (offensive/non-offensive).
+        model_name: str   = "textdetox/xlmr-large-toxicity-classifier",
         threshold:  float = 0.75,
     ):
         self.model_name = model_name
@@ -86,20 +89,35 @@ class NLPService:
         t = text.lower()
         return [kw for kw in BULLYING_KEYWORDS if kw in t]
 
+    # Label names that mean "offensive/toxic" across the supported checkpoints.
+    # Matched case-insensitively (exact) against the model's own output labels,
+    # so both the multilingual textdetox model ("toxic"/"neutral") and the
+    # English cardiffnlp model ("offensive"/"non-offensive" or raw "LABEL_1")
+    # work. Exact match matters: "non-offensive" must NOT match "offensive".
+    _POSITIVE_LABELS = frozenset({"toxic", "offensive", "abusive", "hate", "label_1"})
+
     def _transformer_score(self, text: str) -> tuple[float, str]:
         """
-        Runs XLM-RoBERTa and returns (offensive_score, raw_label).
-        Falls back to 0.0 if model unavailable.
+        Runs the transformer and returns (offensive_score, raw_label).
+        Reads the model's own label names and picks the toxic/offensive-ish
+        one generically (falls back to LABEL_1). Falls back to 0.0 if the
+        model is unavailable.
         """
         try:
             pipe   = self._load()
             output = pipe(text)
-            # output: [[{"label": "LABEL_0/1", "score": float}, ...]]
+            # output: [[{"label": <name>, "score": float}, ...]]
             scores = output[0] if isinstance(output[0], list) else output
             label_map = {item["label"]: item["score"] for item in scores}
 
-            # LABEL_1 = offensive in cardiffnlp model
-            score = label_map.get("LABEL_1", label_map.get("offensive", 0.0))
+            for name, value in label_map.items():
+                if name.lower() in self._POSITIVE_LABELS:
+                    score = value
+                    break
+            else:
+                # Unknown scheme — fall back to LABEL_1
+                score = label_map.get("LABEL_1", 0.0)
+
             label = "offensive" if score >= 0.5 else "not_offensive"
             return float(score), label
 

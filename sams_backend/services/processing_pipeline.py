@@ -43,7 +43,9 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from models.database import Event, AudioClip, Transcript, Analysis, Alert, Device, Location
+from models.database import (
+    Event, AudioClip, Transcript, Analysis, Alert, Device, Location, EmotionAnalysis,
+)
 from models.schemas import ProcessingResponse, TranscriptResult, AnalysisResult
 from services.audio_capture_service import AudioCaptureService
 from services.stt_service import STTService
@@ -64,6 +66,9 @@ class ProcessingPipeline:
         threshold:     float = 0.75,
         audio_storage = None,               # AudioStorageService injected at runtime
         delete_local_after_upload: bool = True,
+        ser           = None,               # SERService (§2.1.3) — None disables SER
+        ser_boost:          float = 0.15,   # threat-score boost on negative emotion
+        ser_min_confidence: float = 0.60,   # min SER confidence to apply the boost
     ):
         self.audio_capture = audio_capture
         self.stt           = stt
@@ -73,6 +78,9 @@ class ProcessingPipeline:
         self.threshold     = threshold
         self.audio_storage = audio_storage
         self.delete_local_after_upload = delete_local_after_upload
+        self.ser                = ser
+        self.ser_boost          = ser_boost
+        self.ser_min_confidence = ser_min_confidence
 
     async def process(
         self,
@@ -217,6 +225,7 @@ class ProcessingPipeline:
                 transcript     = transcript_text,
                 audio_url      = f"/api/events/{event.event_id}/audio",
                 timestamp      = event.timestamp.isoformat(),
+                location_id    = location_id,   # FR16: route to assigned staff
             )
 
             # ── MODULE 4: MQTT fan-out to external subscribers (Figs 4.1/4.2) ──
@@ -224,6 +233,7 @@ class ProcessingPipeline:
                 self.mqtt.publish_alert(
                     alert_id       = alert.alert_id,
                     event_id       = event.event_id,
+                    location_id    = location_id,
                     location_name  = location_name,
                     severity       = threat.severity_level,
                     threat_score   = threat.threat_score,
@@ -285,10 +295,11 @@ class ProcessingPipeline:
         scream detection alone still decides the alert — an AI failure
         must never suppress a scream alert.
         """
-        # ── Part A: STT (via a local temp WAV, always cleaned up) ─────────────
+        # ── Part A: STT + SER (via a local temp WAV, always cleaned up) ───────
         transcript_text = ""
         language        = "unknown"
         stt_ok          = False
+        ser_result      = None
 
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
         try:
@@ -301,6 +312,13 @@ class ProcessingPipeline:
                 stt_ok          = True
             except Exception as e:
                 logger.warning(f"Event {event.event_id}: STT failed ({e}) — continuing without transcript.")
+
+            # ── Part A2: Speech Emotion Recognition (§2.1.3) ──────────────────
+            # Runs after scream detection + STT on the SAME temp WAV, before it
+            # is deleted. analyse() returns None on any failure — SER must
+            # never break the pipeline.
+            if self.ser is not None:
+                ser_result = await self.ser.analyse(tmp.name)
         finally:
             try:
                 if not tmp.closed:
@@ -350,6 +368,38 @@ class ProcessingPipeline:
             severity       = scream_severity
             classification = "scream" if is_scream else "unknown"
 
+        # ── Part C: SER boost + persistence (§2.1.3) ──────────────────────────
+        # A confidently negative vocal tone corroborates the threat: boost the
+        # NLP threat score BEFORE the alert-threshold comparison. The emotion
+        # row is persisted for EVERY SER result (analytics value).
+        emotion            = None
+        emotion_confidence = None
+        if ser_result is not None:
+            emotion            = ser_result["emotion"]
+            emotion_confidence = ser_result["confidence"]
+
+            emotion_row = EmotionAnalysis(
+                event_id   = event.event_id,
+                emotion    = emotion,
+                confidence = emotion_confidence,
+            )
+            db.add(emotion_row)
+            db.commit()
+            db.refresh(emotion_row)
+
+            if (
+                emotion in ("angry", "fearful")
+                and emotion_confidence >= self.ser_min_confidence
+            ):
+                boosted = min(1.0, threat_score + self.ser_boost)
+                logger.info(
+                    f"Event {event.event_id}: SER boost applied — "
+                    f"emotion={emotion} ({emotion_confidence:.3f}) raises "
+                    f"threat score {threat_score:.3f} → {boosted:.3f} "
+                    f"(+{self.ser_boost})"
+                )
+                threat_score = boosted
+
         analysis = Analysis(
             analysis_id    = str(uuid.uuid4()),
             transcript_id  = transcript.transcript_id,
@@ -394,6 +444,9 @@ class ProcessingPipeline:
                 transcript     = stored_text,
                 audio_url      = f"/api/events/{event.event_id}/audio",
                 timestamp      = event.timestamp.isoformat(),
+                location_id    = location_id,   # FR16: route to assigned staff
+                emotion            = emotion,
+                emotion_confidence = emotion_confidence,
             )
 
             # ── MODULE 4: MQTT fan-out to external subscribers (Figs 4.1/4.2) ──
@@ -401,6 +454,7 @@ class ProcessingPipeline:
                 self.mqtt.publish_alert(
                     alert_id       = alert.alert_id,
                     event_id       = event.event_id,
+                    location_id    = location_id,
                     location_name  = location_name,
                     severity       = severity,
                     threat_score   = final_score,
@@ -408,6 +462,8 @@ class ProcessingPipeline:
                     transcript     = stored_text,
                     audio_url      = f"/api/events/{event.event_id}/audio",
                     timestamp      = event.timestamp.isoformat(),
+                    emotion            = emotion,
+                    emotion_confidence = emotion_confidence,
                 )
 
             logger.warning(
@@ -428,6 +484,8 @@ class ProcessingPipeline:
             "classification": classification,
             "alert_fired":    alert_fired,
             "alert_id":       alert_id,
+            "emotion":            emotion,
+            "emotion_confidence": emotion_confidence,
         }
 
     def _cleanup_local_working_copy(self, file_ref: str, local_path: str) -> None:

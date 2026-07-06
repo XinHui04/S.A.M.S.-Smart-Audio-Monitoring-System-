@@ -101,6 +101,21 @@ class Analysis(Base):
     transcript = relationship("Transcript", back_populates="analysis")
 
 
+class EmotionAnalysis(Base):
+    """
+    Speech Emotion Recognition result (report §2.1.3) — one row per event
+    whenever the SER model returns a result, including non-negative emotions
+    (analytics value). NEW table only: existing tables are never altered
+    (live Postgres).
+    """
+    __tablename__ = "emotion_analyses"
+
+    emotion_id = Column(String, primary_key=True, default=generate_id)
+    event_id   = Column(String, ForeignKey("events.event_id"), nullable=False)
+    emotion    = Column(String)   # angry | happy | neutral | sad | fearful | ...
+    confidence = Column(Float)    # 0.0–1.0 top-class score
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -111,6 +126,18 @@ class User(Base):
     role          = Column(String, default="staff")   # admin | staff
 
     alerts = relationship("Alert", back_populates="user")
+
+
+class StaffLocation(Base):
+    """
+    FR16: alert routing — assigns a staff user to the locations they cover.
+    A staff user with NO rows here is unrestricted (fail-open: missing config
+    must never hide a safety incident). Admins ignore this table entirely.
+    """
+    __tablename__ = "staff_locations"
+
+    user_id     = Column(String, ForeignKey("users.user_id"), primary_key=True)
+    location_id = Column(String, ForeignKey("locations.location_id"), primary_key=True)
 
 
 class Alert(Base):

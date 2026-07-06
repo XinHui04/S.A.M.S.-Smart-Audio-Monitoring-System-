@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import case
 from sqlalchemy.orm import Session
 
-from models.database import Alert, Event, Device, Location, AudioClip, Transcript, Analysis, User
+from models.database import Alert, Event, Device, Location, AudioClip, Transcript, Analysis, User, StaffLocation
 from models.schemas import AlertResolveRequest
 from api.dependencies import get_db, get_current_user
 
@@ -66,6 +66,25 @@ async def list_alerts(
         else_=3,
     )
     query = db.query(Alert).order_by(severity_rank, Alert.created_at.desc())
+
+    # FR16: staff with location assignments only see alerts from those
+    # locations. Admins, dev-mode (user=None) and UNASSIGNED staff see all
+    # (fail-open — missing config must never hide a safety incident).
+    # Note: /stats and GET /{alert_id} are intentionally left unfiltered.
+    if user is not None and user.role != "admin":
+        assigned = [
+            row.location_id
+            for row in db.query(StaffLocation)
+                         .filter(StaffLocation.user_id == user.user_id)
+                         .all()
+        ]
+        if assigned:
+            query = (
+                query.join(Event, Alert.event_id == Event.event_id)
+                     .join(Device, Event.device_id == Device.device_id)
+                     .filter(Device.location_id.in_(assigned))
+            )
+
     if status == "open":
         query = query.filter(Alert.status.in_(["active", "acknowledged"]))
     elif status != "all":

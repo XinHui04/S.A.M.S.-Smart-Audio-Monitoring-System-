@@ -413,6 +413,68 @@
   /* Trend sparkline */
   .sparkline { width: 100%; height: 60px; }
 
+  /* ── Reports card (FR13) ─────────────────────────────────────────────────── */
+  .report-controls { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .report-select {
+    background: var(--bg-base);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    font-family: var(--font-ui); font-size: 12px;
+    padding: 5px 8px; outline: none;
+  }
+  .report-select:focus { border-color: var(--amber); }
+  .report-gen-btn {
+    padding: 5px 12px;
+    background: var(--amber); color: #000;
+    border: none; border-radius: var(--radius);
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    font-family: var(--font-ui);
+    transition: opacity 0.15s;
+  }
+  .report-gen-btn:hover    { opacity: 0.85; }
+  .report-gen-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .report-row {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .report-row:last-child { border-bottom: none; }
+  .report-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .report-date  { font-size: 12px; color: var(--text-primary); font-family: var(--font-mono); }
+  .report-count { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+  .report-action-btn {
+    font-size: 11px; padding: 3px 10px; border-radius: 100px;
+    border: 1px solid var(--border); background: none;
+    color: var(--text-secondary); cursor: pointer;
+    font-family: var(--font-mono); transition: all 0.15s;
+  }
+  .report-action-btn:hover  { border-color: var(--amber); color: var(--amber); }
+  .report-action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .report-note { font-size: 12px; color: var(--text-secondary); }
+  .report-note.error { color: var(--red); }
+  .report-summary {
+    margin-top: 10px; padding-top: 10px;
+    border-top: 1px solid var(--border-subtle);
+  }
+  .report-summary-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 8px;
+  }
+  .report-stat-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px;
+  }
+  .report-stat {
+    background: var(--bg-elevated); border: 1px solid var(--border-subtle);
+    border-radius: var(--radius); padding: 6px 8px;
+  }
+  .report-stat .field-label { margin-bottom: 0; }
+  .report-stat .field-value { font-size: 14px; }
+  .report-sub-title {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--text-muted); font-family: var(--font-mono); margin: 8px 0 4px;
+  }
+
   /* ── Filters bar ─────────────────────────────────────────────────────────── */
   .filters {
     padding: 8px 12px;
@@ -848,6 +910,9 @@ function handleIncomingAlert(msg) {
       classification: msg.classification,
       audio_url:      msg.audio_url,
       created_at:     msg.timestamp,
+      // Optional speech-emotion fields (WS-only; REST alerts do not carry these)
+      emotion:            msg.emotion,
+      emotion_confidence: msg.emotion_confidence,
     });
     renderAlertList();
     loadStats();
@@ -868,6 +933,7 @@ function showToast(msg) {
       <button class="toast-dismiss" onclick="this.parentElement.parentElement.remove()">×</button>
     </div>
     <div class="toast-body">${escHtml((msg.transcript || '').substring(0, 80))}${msg.transcript?.length > 80 ? '…' : ''}</div>
+    ${msg.classification ? `<div class="toast-body" style="margin-top:2px;font-family:var(--font-mono);font-size:11px">${escHtml(msg.classification)}${msg.emotion ? ` · ${escHtml(msg.emotion)}` : ''}</div>` : ''}
   `;
   container.appendChild(toast);
   setTimeout(() => toast.remove(), 6000);
@@ -965,6 +1031,11 @@ async function selectAlert(alertId) {
   try {
     const res  = await authFetch(`${API}/api/alerts/${alertId}`);
     const data = await res.json();
+    // REST detail carries no emotion; keep the WS-pushed value if we have one
+    if (cached && cached.emotion && data.emotion === undefined) {
+      data.emotion            = cached.emotion;
+      data.emotion_confidence = cached.emotion_confidence;
+    }
     renderDetail(data);
   } catch(_) {}
 }
@@ -981,6 +1052,19 @@ function renderDetail(alert) {
   const pitchTxt     = fmt(alert.pitch, ' Hz', 0);
   const edgeConfTxt  = (alert.edge_confidence === null || alert.edge_confidence === undefined) ? '—' : (alert.edge_confidence * 100).toFixed(0) + '%';
 
+  // Speech-emotion chip (WS-pushed alerts only; REST alerts have no emotion field)
+  let emotionChip = '';
+  if (alert.emotion) {
+    const emo     = String(alert.emotion).toLowerCase();
+    const isNeg   = emo === 'angry' || emo === 'fearful' || emo === 'fear' || emo === 'anger';
+    const conf    = Number(alert.emotion_confidence);
+    const confTxt = Number.isFinite(conf) ? ` (${Math.round(conf * 100)}%)` : '';
+    const chipStyle = isNeg
+      ? 'background:var(--red-dim);border-color:var(--red);color:var(--red)'
+      : '';
+    emotionChip = `<span class="meta-pill" style="${chipStyle}">Emotion: ${escHtml(alert.emotion)}${escHtml(confTxt)}</span>`;
+  }
+
   document.getElementById('detail-panel').innerHTML = `
     <div class="detail-header">
       <div>
@@ -988,6 +1072,7 @@ function renderDetail(alert) {
         <div class="detail-meta">
           <span class="sev-badge ${sev}">${sev}</span>
           <span class="meta-pill">${escHtml(alert.classification || '—')}</span>
+          ${emotionChip}
           <span class="meta-pill">${formatDateTime(alert.created_at)}</span>
           ${isRes ? `<span class="meta-pill" style="color:var(--teal)">✓ resolved</span>` : ''}
           ${isAck ? `<span class="meta-pill" style="color:var(--amber)">acknowledged</span>` : ''}
@@ -1225,10 +1310,227 @@ async function loadAnalytics() {
           </svg>
         ` : '<div style="color:var(--text-muted);font-size:12px">Not enough data</div>'}
       </div>
+      <div class="chart-card" id="reports-card">
+        <div class="chart-title">Reports</div>
+        <div id="report-controls"></div>
+        <div class="report-note" id="report-msg" style="display:none"></div>
+        <div id="report-list"><div class="report-note">Loading reports…</div></div>
+        <div class="report-summary" id="report-summary" style="display:none"></div>
+      </div>
     `;
+    renderReportControls();
+    loadReports();
   } catch(_) {
     panel.innerHTML = '<div class="empty-state">Could not load analytics</div>';
   }
+}
+
+// ── Reports (FR13) ─────────────────────────────────────────────────────────────
+let reportsCache = [];
+
+// Same role source as the header user chip (renderUserChip → getUser().role)
+function isAdmin() {
+  const user = getUser();
+  return !!user && user.role === 'admin';
+}
+
+function setReportMsg(text, isError) {
+  const el = document.getElementById('report-msg');
+  if (!el) return;
+  el.textContent = text || '';
+  el.className = 'report-note' + (isError ? ' error' : '');
+  el.style.display = text ? 'block' : 'none';
+}
+
+function renderReportControls() {
+  const el = document.getElementById('report-controls');
+  if (!el) return;
+  // Staff never see the generate controls (hidden, not just disabled)
+  if (!isAdmin()) { el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <div class="report-controls">
+      <select class="report-select" id="report-days" title="Reporting period">
+        <option value="7">Last 7 days</option>
+        <option value="30" selected>Last 30 days</option>
+        <option value="90">Last 90 days</option>
+      </select>
+      <button class="report-gen-btn" id="report-gen-btn" onclick="generateReport()">Generate report</button>
+    </div>
+  `;
+}
+
+async function loadReports() {
+  const list = document.getElementById('report-list');
+  if (!list) return;
+  try {
+    const res = await authFetch(`${API}/api/reports/`);
+    if (!res.ok) throw new Error('list failed');
+    const data = await res.json();
+    reportsCache = data.reports || [];
+    renderReportList();
+  } catch(e) {
+    if (e && e.message === 'Unauthorized') return;
+    const el = document.getElementById('report-list');
+    if (el) el.innerHTML = '<div class="report-note error">Could not load reports — is the backend running?</div>';
+  }
+}
+
+function renderReportList() {
+  const list = document.getElementById('report-list');
+  if (!list) return;
+  if (!reportsCache.length) {
+    list.innerHTML = '<div class="report-note">No reports generated yet</div>';
+    return;
+  }
+  // Server returns newest first; indices reference reportsCache (no ids in markup)
+  list.innerHTML = reportsCache.map((r, i) => `
+    <div class="report-row">
+      <div class="report-row-main">
+        <span class="report-date">${escHtml(formatDateTime(r.generated_date))}</span>
+        <span class="report-count">${Number(r.event_count) || 0} events</span>
+      </div>
+      <button class="report-action-btn" onclick="viewReport(${i})">View</button>
+      <button class="report-action-btn" onclick="downloadReportCsv(${i}, this)">CSV</button>
+    </div>
+  `).join('');
+}
+
+async function generateReport() {
+  const btn  = document.getElementById('report-gen-btn');
+  const days = parseInt(document.getElementById('report-days')?.value, 10) || 30;
+  setReportMsg('');
+  if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
+  try {
+    const res = await authFetch(`${API}/api/reports/generate?days=${encodeURIComponent(days)}`, {
+      method: 'POST',
+    });
+    if (res.status === 403) {
+      setReportMsg('Admin only — your account cannot generate reports.', true);
+      return;
+    }
+    if (!res.ok) {
+      setReportMsg('Could not generate report (server error).', true);
+      return;
+    }
+    const summary = await res.json();
+    renderReportSummary(summary);        // show the fresh summary immediately
+    await loadReports();                 // refresh the history list
+  } catch(e) {
+    if (e && e.message === 'Unauthorized') return;
+    setReportMsg('Network error — could not reach API.', true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Generate report'; }
+  }
+}
+
+async function viewReport(index) {
+  const r = reportsCache[index];
+  if (!r) return;
+  setReportMsg('');
+  try {
+    const res = await authFetch(`${API}/api/reports/${encodeURIComponent(r.report_id)}`);
+    if (!res.ok) { setReportMsg('Could not load report summary.', true); return; }
+    renderReportSummary(await res.json());
+  } catch(e) {
+    if (e && e.message === 'Unauthorized') return;
+    setReportMsg('Network error — could not reach API.', true);
+  }
+}
+
+// Authenticated CSV download: browsers cannot attach headers to <a href> loads
+// and the reports endpoints do not accept ?token=, so fetch the blob via
+// authFetch and trigger the save with an object URL.
+async function downloadReportCsv(index, btn) {
+  const r = reportsCache[index];
+  if (!r) return;
+  setReportMsg('');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await authFetch(`${API}/api/reports/${encodeURIComponent(r.report_id)}/export.csv`);
+    if (!res.ok) { setReportMsg('Could not export CSV.', true); return; }
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `sams_report_${r.report_id}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch(e) {
+    if (e && e.message === 'Unauthorized') return;
+    setReportMsg('Network error — could not download CSV.', true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function renderReportSummary(s) {
+  const el = document.getElementById('report-summary');
+  if (!el || !s) return;
+  const totals   = s.totals || {};
+  const bySev    = totals.by_severity || {};
+  const byStatus = totals.by_status || {};
+  const resn     = s.resolution || {};
+  const hotspots = s.hotspots || [];
+  const num = v => escHtml(String(Number(v) || 0));
+
+  const hotMax = Math.max(...hotspots.map(h => Number(h.count) || 0), 1);
+  const hotspotHTML = hotspots.map(h => `
+    <div class="bar-row">
+      <div class="bar-label">${escHtml(h.location_name)}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${Math.round((Number(h.count) || 0) / hotMax * 100)}%"></div></div>
+      <div class="bar-count">${num(h.count)}</div>
+    </div>
+  `).join('') || '<div class="report-note">No hotspots in this report</div>';
+
+  const avgMin = (resn.avg_minutes_to_resolve === null || resn.avg_minutes_to_resolve === undefined)
+    ? '—' : escHtml(String(resn.avg_minutes_to_resolve)) + ' min';
+  const periodTxt = (s.period_days !== undefined && s.period_days !== null)
+    ? `<span class="meta-pill">${num(s.period_days)}-day period</span>` : '';
+  const linkedTxt = (s.linked_events !== undefined && s.linked_events !== null)
+    ? `<span class="meta-pill">${num(s.linked_events)} events linked</span>` : '';
+
+  el.style.display = 'block';
+  el.innerHTML = `
+    <div class="report-summary-title">Report Summary — ${escHtml(formatDateTime(s.generated_date))}</div>
+    <div class="detail-meta" style="margin-bottom:8px">
+      <span class="meta-pill">${escHtml(String(s.report_id || '')).substring(0, 8)}…</span>
+      ${periodTxt}
+      ${linkedTxt}
+    </div>
+    <div class="report-stat-grid">
+      <div class="report-stat">
+        <div class="field-label">Events</div>
+        <div class="field-value">${num(totals.events)}</div>
+      </div>
+      <div class="report-stat">
+        <div class="field-label">Alerts</div>
+        <div class="field-value">${num(totals.alerts)}</div>
+      </div>
+    </div>
+    <div class="report-sub-title">By Severity</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div>high — ${num(bySev.high)}</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--amber)"></div>medium — ${num(bySev.medium)}</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--teal)"></div>low — ${num(bySev.low)}</div>
+    <div class="report-sub-title">By Status</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div>active — ${num(byStatus.active)}</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--amber)"></div>acknowledged — ${num(byStatus.acknowledged)}</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--teal)"></div>resolved — ${num(byStatus.resolved)}</div>
+    <div class="report-sub-title">Top Hotspots</div>
+    <div class="bar-chart">${hotspotHTML}</div>
+    <div class="report-sub-title">Resolution</div>
+    <div class="report-stat-grid" style="margin-bottom:0">
+      <div class="report-stat">
+        <div class="field-label">Resolved</div>
+        <div class="field-value">${num(resn.resolved)}</div>
+      </div>
+      <div class="report-stat">
+        <div class="field-label">Avg Time to Resolve</div>
+        <div class="field-value">${avgMin}</div>
+      </div>
+    </div>
+  `;
 }
 
 // ── Tab switching ──────────────────────────────────────────────────────────────

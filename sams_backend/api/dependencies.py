@@ -18,6 +18,7 @@ from models.database import User, create_db_engine, get_session_factory
 from services.audio_capture_service import AudioCaptureService
 from services.stt_service import STTService
 from services.nlp_service import NLPService
+from services.ser_service import SERService
 from services.processing_pipeline import ProcessingPipeline
 from services.websocket_manager import WebSocketManager
 from services.mqtt_service import MqttService
@@ -46,6 +47,7 @@ _audio_storage  = AudioStorageService(
 )
 _stt        = STTService(api_key=cfg.groq_api_key)   # Groq free API
 _nlp        = NLPService(model_name=cfg.nlp_model, threshold=cfg.threat_score_threshold)
+_ser        = SERService(model_name=cfg.ser_model) if cfg.ser_enabled else None
 _ws_manager = WebSocketManager()
 _mqtt       = MqttService(
     enabled  = cfg.mqtt_enabled,
@@ -67,6 +69,9 @@ _pipeline = ProcessingPipeline(
     threshold     = cfg.threat_score_threshold,
     audio_storage = _audio_storage,
     delete_local_after_upload = cfg.delete_local_after_upload,
+    ser                = _ser,
+    ser_boost          = cfg.ser_boost,
+    ser_min_confidence = cfg.ser_min_confidence,
 )
 
 # ── Dependency functions ──────────────────────────────────────────────────────
