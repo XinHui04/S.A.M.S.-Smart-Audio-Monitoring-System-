@@ -67,6 +67,12 @@ class ScreamAnalyzer:
    
 
     def _extract_features(self, audio: np.ndarray) -> np.ndarray:
+        # ==================================================
+        # Defensive guard: this method needs tf.signal.*
+        # ==================================================
+        if not TFLITE_AVAILABLE:
+            raise RuntimeError("TensorFlow not available — cannot extract features")
+
         """Feature extraction on a single 1-second window"""
         # Pad if shorter than 1 second
         if len(audio) < SAMPLE_RATE:
