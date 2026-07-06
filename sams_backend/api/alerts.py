@@ -7,9 +7,10 @@ MODULE 3 & 4: Reporting + Main Monitoring Dashboard
 import logging
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import case
 from sqlalchemy.orm import Session
 
-from models.database import Alert, Event, Device, Location, AudioClip, Transcript, Analysis, User
+from models.database import Alert, Event, Device, Location, AudioClip, Transcript, Analysis, User, StaffLocation
 from models.schemas import AlertResolveRequest
 from api.dependencies import get_db, get_current_user
 
@@ -49,15 +50,44 @@ def _enrich_alert(alert: Alert, db: Session) -> dict:
 
 @router.get("/", summary="List alerts — dashboard main feed")
 async def list_alerts(
-    status:   str = "active",   # active | resolved | all
+    status:   str = "open",   # active | acknowledged | resolved | open (active+acknowledged) | all
     severity: str = None,
     page:     int = 1,
     per_page: int = 20,
     db:   Session = Depends(get_db),
     user: User    = Depends(get_current_user),
 ):
-    query = db.query(Alert).order_by(Alert.created_at.desc())
-    if status != "all":
+    # FR20: severity-prioritized feed — high first, then medium, then low;
+    # newest first within each severity band.
+    severity_rank = case(
+        (Alert.severity == "high",   0),
+        (Alert.severity == "medium", 1),
+        (Alert.severity == "low",    2),
+        else_=3,
+    )
+    query = db.query(Alert).order_by(severity_rank, Alert.created_at.desc())
+
+    # FR16: staff with location assignments only see alerts from those
+    # locations. Admins, dev-mode (user=None) and UNASSIGNED staff see all
+    # (fail-open — missing config must never hide a safety incident).
+    # Note: /stats and GET /{alert_id} are intentionally left unfiltered.
+    if user is not None and user.role != "admin":
+        assigned = [
+            row.location_id
+            for row in db.query(StaffLocation)
+                         .filter(StaffLocation.user_id == user.user_id)
+                         .all()
+        ]
+        if assigned:
+            query = (
+                query.join(Event, Alert.event_id == Event.event_id)
+                     .join(Device, Event.device_id == Device.device_id)
+                     .filter(Device.location_id.in_(assigned))
+            )
+
+    if status == "open":
+        query = query.filter(Alert.status.in_(["active", "acknowledged"]))
+    elif status != "all":
         query = query.filter(Alert.status == status)
     if severity:
         query = query.filter(Alert.severity == severity)
@@ -76,8 +106,9 @@ async def list_alerts(
 @router.get("/stats", summary="Dashboard header stats")
 async def stats(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return {
-        "active_alerts":   db.query(Alert).filter(Alert.status == "active").count(),
-        "resolved_alerts": db.query(Alert).filter(Alert.status == "resolved").count(),
+        "active_alerts":       db.query(Alert).filter(Alert.status == "active").count(),
+        "acknowledged_alerts": db.query(Alert).filter(Alert.status == "acknowledged").count(),
+        "resolved_alerts":     db.query(Alert).filter(Alert.status == "resolved").count(),
         "high":   db.query(Alert).filter(Alert.severity == "high").count(),
         "medium": db.query(Alert).filter(Alert.severity == "medium").count(),
         "low":    db.query(Alert).filter(Alert.severity == "low").count(),
@@ -90,6 +121,27 @@ async def get_alert(alert_id: str, db: Session = Depends(get_db), user: User = D
     if not alert:
         raise HTTPException(404, "Alert not found")
     return _enrich_alert(alert, db)
+
+
+@router.put("/{alert_id}/acknowledge", summary="Staff acknowledges an alert — being handled")
+async def acknowledge_alert(
+    alert_id: str,
+    db:       Session = Depends(get_db),
+    user:     User    = Depends(get_current_user),
+):
+    alert = db.query(Alert).filter(Alert.alert_id == alert_id).first()
+    if not alert:
+        raise HTTPException(404, "Alert not found")
+    if alert.status == "acknowledged":
+        raise HTTPException(409, "Already acknowledged")
+    if alert.status == "resolved":
+        raise HTTPException(409, "Already resolved")
+
+    alert.status = "acknowledged"
+    if user is not None:   # None only when auth is unconfigured (dev mode)
+        alert.user_id = user.user_id   # audit: who acknowledged it
+    db.commit()
+    return {"message": "Alert acknowledged", "alert_id": alert_id}
 
 
 @router.put("/{alert_id}/resolve", summary="Staff resolves an alert")

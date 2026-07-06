@@ -162,6 +162,7 @@
     text-transform: uppercase; font-family: var(--font-mono); letter-spacing: 0.5px;
   }
   .alert-card-status.resolved { color: var(--teal); }
+  .alert-card-status.acknowledged { color: var(--amber); }
 
   /* ── Detail panel ────────────────────────────────────────────────────────── */
   .detail { display: flex; flex-direction: column; overflow: hidden; }
@@ -176,7 +177,7 @@
 
   /* ── Stats strip ─────────────────────────────────────────────────────────── */
   .stats-strip {
-    display: grid; grid-template-columns: repeat(4, 1fr);
+    display: grid; grid-template-columns: repeat(5, 1fr);
     gap: 1px; background: var(--border);
     border-bottom: 1px solid var(--border);
   }
@@ -337,6 +338,21 @@
     display: flex; align-items: center; gap: 8px;
     color: var(--teal); font-size: 13px; font-weight: 500;
   }
+  .ack-btn {
+    margin-bottom: 12px; padding: 6px 14px;
+    background: none; color: var(--amber);
+    border: 1px solid var(--amber); border-radius: var(--radius);
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    font-family: var(--font-ui);
+    transition: all 0.15s;
+  }
+  .ack-btn:hover    { background: var(--amber-dim); }
+  .ack-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .ack-msg {
+    display: flex; align-items: center; gap: 8px;
+    color: var(--amber); font-size: 12px; font-weight: 500;
+    margin-bottom: 12px;
+  }
 
   /* ── Toast notification ──────────────────────────────────────────────────── */
   #toast-container {
@@ -396,6 +412,68 @@
 
   /* Trend sparkline */
   .sparkline { width: 100%; height: 60px; }
+
+  /* ── Reports card (FR13) ─────────────────────────────────────────────────── */
+  .report-controls { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .report-select {
+    background: var(--bg-base);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    font-family: var(--font-ui); font-size: 12px;
+    padding: 5px 8px; outline: none;
+  }
+  .report-select:focus { border-color: var(--amber); }
+  .report-gen-btn {
+    padding: 5px 12px;
+    background: var(--amber); color: #000;
+    border: none; border-radius: var(--radius);
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    font-family: var(--font-ui);
+    transition: opacity 0.15s;
+  }
+  .report-gen-btn:hover    { opacity: 0.85; }
+  .report-gen-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .report-row {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .report-row:last-child { border-bottom: none; }
+  .report-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .report-date  { font-size: 12px; color: var(--text-primary); font-family: var(--font-mono); }
+  .report-count { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+  .report-action-btn {
+    font-size: 11px; padding: 3px 10px; border-radius: 100px;
+    border: 1px solid var(--border); background: none;
+    color: var(--text-secondary); cursor: pointer;
+    font-family: var(--font-mono); transition: all 0.15s;
+  }
+  .report-action-btn:hover  { border-color: var(--amber); color: var(--amber); }
+  .report-action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .report-note { font-size: 12px; color: var(--text-secondary); }
+  .report-note.error { color: var(--red); }
+  .report-summary {
+    margin-top: 10px; padding-top: 10px;
+    border-top: 1px solid var(--border-subtle);
+  }
+  .report-summary-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 8px;
+  }
+  .report-stat-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px;
+  }
+  .report-stat {
+    background: var(--bg-elevated); border: 1px solid var(--border-subtle);
+    border-radius: var(--radius); padding: 6px 8px;
+  }
+  .report-stat .field-label { margin-bottom: 0; }
+  .report-stat .field-value { font-size: 14px; }
+  .report-sub-title {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--text-muted); font-family: var(--font-mono); margin: 8px 0 4px;
+  }
 
   /* ── Filters bar ─────────────────────────────────────────────────────────── */
   .filters {
@@ -554,6 +632,7 @@
       <div id="tab-alerts" style="display:flex; flex-direction:column; flex:1; overflow:hidden;">
         <div class="filters">
           <button class="filter-btn active" onclick="setFilter('active', this)">Active</button>
+          <button class="filter-btn" onclick="setFilter('acknowledged', this)">Ack'd</button>
           <button class="filter-btn" onclick="setFilter('all', this)">All</button>
           <button class="filter-btn" onclick="setFilter('resolved', this)">Resolved</button>
           <button class="filter-btn" style="margin-left:auto" onclick="setFilter('high', this)">High</button>
@@ -581,6 +660,10 @@
         <div class="stat-cell">
           <div class="stat-label">Active Alerts</div>
           <div class="stat-value red" id="stat-active">—</div>
+        </div>
+        <div class="stat-cell">
+          <div class="stat-label">Acknowledged</div>
+          <div class="stat-value amber" id="stat-ack">—</div>
         </div>
         <div class="stat-cell">
           <div class="stat-label">High Severity</div>
@@ -827,6 +910,9 @@ function handleIncomingAlert(msg) {
       classification: msg.classification,
       audio_url:      msg.audio_url,
       created_at:     msg.timestamp,
+      // Optional speech-emotion fields (WS-only; REST alerts do not carry these)
+      emotion:            msg.emotion,
+      emotion_confidence: msg.emotion_confidence,
     });
     renderAlertList();
     loadStats();
@@ -847,6 +933,7 @@ function showToast(msg) {
       <button class="toast-dismiss" onclick="this.parentElement.parentElement.remove()">×</button>
     </div>
     <div class="toast-body">${escHtml((msg.transcript || '').substring(0, 80))}${msg.transcript?.length > 80 ? '…' : ''}</div>
+    ${msg.classification ? `<div class="toast-body" style="margin-top:2px;font-family:var(--font-mono);font-size:11px">${escHtml(msg.classification)}${msg.emotion ? ` · ${escHtml(msg.emotion)}` : ''}</div>` : ''}
   `;
   container.appendChild(toast);
   setTimeout(() => toast.remove(), 6000);
@@ -870,8 +957,10 @@ function playAlertSound(severity) {
 async function loadAlerts() {
   try {
     const sev    = filterSev ? `&severity=${filterSev}` : '';
+    // "active" view maps to the server's "open" status (active + acknowledged)
+    // so acknowledged alerts stay visible until resolved.
     const status = filterStatus === 'high' || filterStatus === 'medium' || filterStatus === 'low'
-                   ? 'all' : filterStatus;
+                   ? 'all' : (filterStatus === 'active' ? 'open' : filterStatus);
     const res  = await authFetch(`${API}/api/alerts/?status=${status}${sev}&per_page=50`);
     const data = await res.json();
     alerts = data.alerts || [];
@@ -887,10 +976,11 @@ async function loadStats() {
     const res  = await authFetch(`${API}/api/alerts/stats`);
     const data = await res.json();
     document.getElementById('stat-active').textContent   = data.active_alerts ?? '—';
+    document.getElementById('stat-ack').textContent      = data.acknowledged_alerts ?? '—';
     document.getElementById('stat-high').textContent     = data.high ?? '—';
     document.getElementById('stat-resolved').textContent = data.resolved_alerts ?? '—';
     document.getElementById('stat-total').textContent    =
-      (data.active_alerts || 0) + (data.resolved_alerts || 0);
+      (data.active_alerts || 0) + (data.acknowledged_alerts || 0) + (data.resolved_alerts || 0);
     document.getElementById('alert-count-badge').textContent =
       data.active_alerts > 0 ? ` (${data.active_alerts})` : '';
   } catch(_) {}
@@ -901,8 +991,10 @@ function renderAlertList() {
   const list = document.getElementById('alert-list');
   let   data = [...alerts];
 
-  if (filterStatus === 'active')   data = data.filter(a => a.status === 'active');
-  if (filterStatus === 'resolved') data = data.filter(a => a.status === 'resolved');
+  // Default "active" view includes acknowledged alerts (server "open" status)
+  if (filterStatus === 'active')       data = data.filter(a => a.status === 'active' || a.status === 'acknowledged');
+  if (filterStatus === 'acknowledged') data = data.filter(a => a.status === 'acknowledged');
+  if (filterStatus === 'resolved')     data = data.filter(a => a.status === 'resolved');
   if (filterStatus === 'high')     data = data.filter(a => a.severity === 'high');
   if (filterStatus === 'medium')   data = data.filter(a => a.severity === 'medium');
   if (filterStatus === 'low')      data = data.filter(a => a.severity === 'low');
@@ -939,6 +1031,11 @@ async function selectAlert(alertId) {
   try {
     const res  = await authFetch(`${API}/api/alerts/${alertId}`);
     const data = await res.json();
+    // REST detail carries no emotion; keep the WS-pushed value if we have one
+    if (cached && cached.emotion && data.emotion === undefined) {
+      data.emotion            = cached.emotion;
+      data.emotion_confidence = cached.emotion_confidence;
+    }
     renderDetail(data);
   } catch(_) {}
 }
@@ -948,11 +1045,25 @@ function renderDetail(alert) {
   const scoreW  = Math.round(score * 100);
   const sev     = alert.severity || 'low';
   const isRes   = alert.status === 'resolved';
+  const isAck   = alert.status === 'acknowledged';
   const transcript = alert.transcript || 'No speech detected in this clip.';
   const fmt = (v, unit, dp = 1) => (v === null || v === undefined) ? '—' : Number(v).toFixed(dp) + unit;
   const intensityTxt = fmt(alert.intensity, ' dB', 1);
   const pitchTxt     = fmt(alert.pitch, ' Hz', 0);
   const edgeConfTxt  = (alert.edge_confidence === null || alert.edge_confidence === undefined) ? '—' : (alert.edge_confidence * 100).toFixed(0) + '%';
+
+  // Speech-emotion chip (WS-pushed alerts only; REST alerts have no emotion field)
+  let emotionChip = '';
+  if (alert.emotion) {
+    const emo     = String(alert.emotion).toLowerCase();
+    const isNeg   = emo === 'angry' || emo === 'fearful' || emo === 'fear' || emo === 'anger';
+    const conf    = Number(alert.emotion_confidence);
+    const confTxt = Number.isFinite(conf) ? ` (${Math.round(conf * 100)}%)` : '';
+    const chipStyle = isNeg
+      ? 'background:var(--red-dim);border-color:var(--red);color:var(--red)'
+      : '';
+    emotionChip = `<span class="meta-pill" style="${chipStyle}">Emotion: ${escHtml(alert.emotion)}${escHtml(confTxt)}</span>`;
+  }
 
   document.getElementById('detail-panel').innerHTML = `
     <div class="detail-header">
@@ -961,8 +1072,10 @@ function renderDetail(alert) {
         <div class="detail-meta">
           <span class="sev-badge ${sev}">${sev}</span>
           <span class="meta-pill">${escHtml(alert.classification || '—')}</span>
+          ${emotionChip}
           <span class="meta-pill">${formatDateTime(alert.created_at)}</span>
           ${isRes ? `<span class="meta-pill" style="color:var(--teal)">✓ resolved</span>` : ''}
+          ${isAck ? `<span class="meta-pill" style="color:var(--amber)">acknowledged</span>` : ''}
         </div>
       </div>
     </div>
@@ -1032,6 +1145,18 @@ function renderDetail(alert) {
           Resolved — ${escHtml(alert.resolution_notes || '')}
         </div>
       ` : `
+        ${isAck ? `
+          <div class="ack-msg">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>
+            </svg>
+            Acknowledged — being handled
+          </div>
+        ` : `
+          <button class="ack-btn" onclick="acknowledgeAlert('${alert.alert_id}')">
+            Acknowledge
+          </button>
+        `}
         <div class="resolve-title">Resolve Incident</div>
         <textarea class="resolve-notes" id="resolve-notes"
           placeholder="Describe your investigation and outcome…"></textarea>
@@ -1072,6 +1197,30 @@ async function toggleAudio(url, btn) {
   }
   await currentAudio.play();
   btn.innerHTML = `<svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M5.5 3.5A1.5 1.5 0 0 1 7 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5m5 0A1.5 1.5 0 0 1 12 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5"/></svg>`;
+}
+
+// ── Acknowledge alert ──────────────────────────────────────────────────────────
+async function acknowledgeAlert(alertId) {
+  const btn = document.querySelector('.ack-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Acknowledging…'; }
+
+  try {
+    const res = await authFetch(`${API}/api/alerts/${alertId}/acknowledge`, {
+      method: 'PUT',
+    });
+    if (res.ok || res.status === 409) {
+      // 409 = already acknowledged/resolved elsewhere — refresh to sync either way
+      const a = alerts.find(x => x.alert_id === alertId);
+      if (a && a.status === 'active') a.status = 'acknowledged';
+      await loadAlerts();
+      await loadStats();
+      selectAlert(alertId);
+    } else {
+      if (btn) { btn.disabled = false; btn.textContent = 'Acknowledge'; }
+    }
+  } catch(e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Acknowledge'; }
+  }
 }
 
 // ── Resolve alert ──────────────────────────────────────────────────────────────
@@ -1161,10 +1310,227 @@ async function loadAnalytics() {
           </svg>
         ` : '<div style="color:var(--text-muted);font-size:12px">Not enough data</div>'}
       </div>
+      <div class="chart-card" id="reports-card">
+        <div class="chart-title">Reports</div>
+        <div id="report-controls"></div>
+        <div class="report-note" id="report-msg" style="display:none"></div>
+        <div id="report-list"><div class="report-note">Loading reports…</div></div>
+        <div class="report-summary" id="report-summary" style="display:none"></div>
+      </div>
     `;
+    renderReportControls();
+    loadReports();
   } catch(_) {
     panel.innerHTML = '<div class="empty-state">Could not load analytics</div>';
   }
+}
+
+// ── Reports (FR13) ─────────────────────────────────────────────────────────────
+let reportsCache = [];
+
+// Same role source as the header user chip (renderUserChip → getUser().role)
+function isAdmin() {
+  const user = getUser();
+  return !!user && user.role === 'admin';
+}
+
+function setReportMsg(text, isError) {
+  const el = document.getElementById('report-msg');
+  if (!el) return;
+  el.textContent = text || '';
+  el.className = 'report-note' + (isError ? ' error' : '');
+  el.style.display = text ? 'block' : 'none';
+}
+
+function renderReportControls() {
+  const el = document.getElementById('report-controls');
+  if (!el) return;
+  // Staff never see the generate controls (hidden, not just disabled)
+  if (!isAdmin()) { el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <div class="report-controls">
+      <select class="report-select" id="report-days" title="Reporting period">
+        <option value="7">Last 7 days</option>
+        <option value="30" selected>Last 30 days</option>
+        <option value="90">Last 90 days</option>
+      </select>
+      <button class="report-gen-btn" id="report-gen-btn" onclick="generateReport()">Generate report</button>
+    </div>
+  `;
+}
+
+async function loadReports() {
+  const list = document.getElementById('report-list');
+  if (!list) return;
+  try {
+    const res = await authFetch(`${API}/api/reports/`);
+    if (!res.ok) throw new Error('list failed');
+    const data = await res.json();
+    reportsCache = data.reports || [];
+    renderReportList();
+  } catch(e) {
+    if (e && e.message === 'Unauthorized') return;
+    const el = document.getElementById('report-list');
+    if (el) el.innerHTML = '<div class="report-note error">Could not load reports — is the backend running?</div>';
+  }
+}
+
+function renderReportList() {
+  const list = document.getElementById('report-list');
+  if (!list) return;
+  if (!reportsCache.length) {
+    list.innerHTML = '<div class="report-note">No reports generated yet</div>';
+    return;
+  }
+  // Server returns newest first; indices reference reportsCache (no ids in markup)
+  list.innerHTML = reportsCache.map((r, i) => `
+    <div class="report-row">
+      <div class="report-row-main">
+        <span class="report-date">${escHtml(formatDateTime(r.generated_date))}</span>
+        <span class="report-count">${Number(r.event_count) || 0} events</span>
+      </div>
+      <button class="report-action-btn" onclick="viewReport(${i})">View</button>
+      <button class="report-action-btn" onclick="downloadReportCsv(${i}, this)">CSV</button>
+    </div>
+  `).join('');
+}
+
+async function generateReport() {
+  const btn  = document.getElementById('report-gen-btn');
+  const days = parseInt(document.getElementById('report-days')?.value, 10) || 30;
+  setReportMsg('');
+  if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
+  try {
+    const res = await authFetch(`${API}/api/reports/generate?days=${encodeURIComponent(days)}`, {
+      method: 'POST',
+    });
+    if (res.status === 403) {
+      setReportMsg('Admin only — your account cannot generate reports.', true);
+      return;
+    }
+    if (!res.ok) {
+      setReportMsg('Could not generate report (server error).', true);
+      return;
+    }
+    const summary = await res.json();
+    renderReportSummary(summary);        // show the fresh summary immediately
+    await loadReports();                 // refresh the history list
+  } catch(e) {
+    if (e && e.message === 'Unauthorized') return;
+    setReportMsg('Network error — could not reach API.', true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Generate report'; }
+  }
+}
+
+async function viewReport(index) {
+  const r = reportsCache[index];
+  if (!r) return;
+  setReportMsg('');
+  try {
+    const res = await authFetch(`${API}/api/reports/${encodeURIComponent(r.report_id)}`);
+    if (!res.ok) { setReportMsg('Could not load report summary.', true); return; }
+    renderReportSummary(await res.json());
+  } catch(e) {
+    if (e && e.message === 'Unauthorized') return;
+    setReportMsg('Network error — could not reach API.', true);
+  }
+}
+
+// Authenticated CSV download: browsers cannot attach headers to <a href> loads
+// and the reports endpoints do not accept ?token=, so fetch the blob via
+// authFetch and trigger the save with an object URL.
+async function downloadReportCsv(index, btn) {
+  const r = reportsCache[index];
+  if (!r) return;
+  setReportMsg('');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await authFetch(`${API}/api/reports/${encodeURIComponent(r.report_id)}/export.csv`);
+    if (!res.ok) { setReportMsg('Could not export CSV.', true); return; }
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `sams_report_${r.report_id}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch(e) {
+    if (e && e.message === 'Unauthorized') return;
+    setReportMsg('Network error — could not download CSV.', true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function renderReportSummary(s) {
+  const el = document.getElementById('report-summary');
+  if (!el || !s) return;
+  const totals   = s.totals || {};
+  const bySev    = totals.by_severity || {};
+  const byStatus = totals.by_status || {};
+  const resn     = s.resolution || {};
+  const hotspots = s.hotspots || [];
+  const num = v => escHtml(String(Number(v) || 0));
+
+  const hotMax = Math.max(...hotspots.map(h => Number(h.count) || 0), 1);
+  const hotspotHTML = hotspots.map(h => `
+    <div class="bar-row">
+      <div class="bar-label">${escHtml(h.location_name)}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${Math.round((Number(h.count) || 0) / hotMax * 100)}%"></div></div>
+      <div class="bar-count">${num(h.count)}</div>
+    </div>
+  `).join('') || '<div class="report-note">No hotspots in this report</div>';
+
+  const avgMin = (resn.avg_minutes_to_resolve === null || resn.avg_minutes_to_resolve === undefined)
+    ? '—' : escHtml(String(resn.avg_minutes_to_resolve)) + ' min';
+  const periodTxt = (s.period_days !== undefined && s.period_days !== null)
+    ? `<span class="meta-pill">${num(s.period_days)}-day period</span>` : '';
+  const linkedTxt = (s.linked_events !== undefined && s.linked_events !== null)
+    ? `<span class="meta-pill">${num(s.linked_events)} events linked</span>` : '';
+
+  el.style.display = 'block';
+  el.innerHTML = `
+    <div class="report-summary-title">Report Summary — ${escHtml(formatDateTime(s.generated_date))}</div>
+    <div class="detail-meta" style="margin-bottom:8px">
+      <span class="meta-pill">${escHtml(String(s.report_id || '')).substring(0, 8)}…</span>
+      ${periodTxt}
+      ${linkedTxt}
+    </div>
+    <div class="report-stat-grid">
+      <div class="report-stat">
+        <div class="field-label">Events</div>
+        <div class="field-value">${num(totals.events)}</div>
+      </div>
+      <div class="report-stat">
+        <div class="field-label">Alerts</div>
+        <div class="field-value">${num(totals.alerts)}</div>
+      </div>
+    </div>
+    <div class="report-sub-title">By Severity</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div>high — ${num(bySev.high)}</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--amber)"></div>medium — ${num(bySev.medium)}</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--teal)"></div>low — ${num(bySev.low)}</div>
+    <div class="report-sub-title">By Status</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div>active — ${num(byStatus.active)}</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--amber)"></div>acknowledged — ${num(byStatus.acknowledged)}</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--teal)"></div>resolved — ${num(byStatus.resolved)}</div>
+    <div class="report-sub-title">Top Hotspots</div>
+    <div class="bar-chart">${hotspotHTML}</div>
+    <div class="report-sub-title">Resolution</div>
+    <div class="report-stat-grid" style="margin-bottom:0">
+      <div class="report-stat">
+        <div class="field-label">Resolved</div>
+        <div class="field-value">${num(resn.resolved)}</div>
+      </div>
+      <div class="report-stat">
+        <div class="field-label">Avg Time to Resolve</div>
+        <div class="field-value">${avgMin}</div>
+      </div>
+    </div>
+  `;
 }
 
 // ── Tab switching ──────────────────────────────────────────────────────────────
@@ -1180,7 +1546,7 @@ function switchTab(tab, el) {
 function setFilter(val, el) {
   document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
   el.classList.add('active');
-  if (['active','resolved','all'].includes(val)) { filterStatus = val; filterSev = null; }
+  if (['active','acknowledged','resolved','all'].includes(val)) { filterStatus = val; filterSev = null; }
   else { filterSev = val; filterStatus = 'all'; }
   loadAlerts();
 }

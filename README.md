@@ -22,8 +22,8 @@ sams_final/
 │   ├── requirements.txt
 │   ├── .env.example             Copy to .env and configure
 │   ├── simulate_edge.py         Stand-in for the ESP32 device (OUTDATED — see §11)
-│   ├── api/                     auth.py (JWT login) · events.py · alerts.py · analytics.py · dependencies.py
-│   ├── services/                stt · nlp · mqtt · audio_capture · processing_pipeline · websocket_manager · storage
+│   ├── api/                     auth.py (JWT login) · events.py · alerts.py · analytics.py · reports.py · admin.py · dependencies.py
+│   ├── services/                stt · nlp · ser · mqtt · audio_capture · processing_pipeline · websocket_manager · storage
 │   ├── models/                  database.py (ORM/ERD) · schemas.py (Pydantic)
 │   ├── utils/                   auth.py (bcrypt) · seed_db.py (demo data)
 │   ├── config/                  settings.py (env config)
@@ -45,11 +45,15 @@ The three pieces talk over one backend:
    2. notifies    ──HTTP───►  POST /api/events/audio  (supabase_file_path)
                                   │  download clip → scream detection (TFLite)
                                   │  → Whisper STT → NLP threat score
-                                  │  store Event/AudioClip/Transcript/Analysis
-                                  └─ if scream OR score ≥ 0.75 → Alert
+                                  │  → SER emotion (wav2vec2) — angry speech
+                                  │    boosts the threat score before the decision
+                                  │  store Event/AudioClip/Transcript/Analysis/EmotionAnalysis
+                                  └─ if scream OR boosted score ≥ 0.75 → Alert
                                         ├─ WebSocket /ws/dashboard ─► Central dashboard (PC)
                                         ├─ static /m/              ─► Teacher PWA (phone)
                                         └─ MQTT sams/alerts        ─► other subscribers
+                                        (WS push + feed are filtered per user by
+                                         staff location assignments — FR16, §9)
 
  Staff (dashboard / PWA) ──►  POST /api/auth/login → JWT → all /api reads + WS
 ```
@@ -78,9 +82,16 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-> First run downloads the NLP model (`cardiffnlp/twitter-roberta-base-offensive`,
-> ~500 MB) and caches it locally. Speech-to-text uses the **Groq cloud API**, so
-> no large Whisper download is needed.
+> First run downloads the multilingual NLP model
+> (`textdetox/xlmr-large-toxicity-classifier`, ~1.1 GB) and — on first use of
+> speech emotion recognition — the SER model
+> (`superb/wav2vec2-base-superb-er`, ~380 MB), caching both locally. The old
+> English-only model remains selectable via `NLP_MODEL`. On a 24-phrase
+> EN/Malay/Manglish probe set the new model lifted Malay/Manglish toxic
+> accuracy from 17% to 83% (English unchanged, zero false positives on benign
+> phrases — a small probe, not a benchmark; the keyword booster stays active).
+> Speech-to-text uses the **Groq cloud API**, so no large Whisper download is
+> needed.
 
 ### 3.2 Configure environment
 
@@ -110,7 +121,9 @@ Leave `MQTT_ENABLED=false` unless you've set up Mosquitto (see §6).
 ```
 
 Creates 6 school locations (toilet blocks, stairwells, corridors), 6 ESP32
-devices, and two demo users:
+devices, and two demo users. The staff user is assigned to `loc-001` and
+`loc-003` (FR16 alert routing — she only receives alerts from those
+locations; the admin sees everything):
 
 | Email | Password | Role |
 |---|---|---|
@@ -148,10 +161,40 @@ Sign in with one of the seeded accounts (§3.3), e.g. `admin@school.edu.my` /
 `Admin@1234`. A green **"Live"** dot (top-right) means the WebSocket is
 connected. It shows the live alert feed, incident detail (threat score,
 transcript, acoustic dB/Hz/edge confidence, audio playback), analytics, and the
-resolve flow — resolving an alert records **who** resolved it. Use the user
+resolve flow — resolving an alert records **who** resolved it. Live alerts also
+carry a detected-**emotion** chip (from the SER model, §4.2), and the alert
+feed is filtered per user by staff location assignments (§4.3). Use the user
 chip in the header to sign out.
 
 > The dashboard talks to `http://localhost:8000`, so keep the backend running.
+
+### 4.1 Reports (FR13)
+
+The analytics section has a **Reports** card. Admins can generate a report for
+the last *N* days (`POST /api/reports/generate?days=N`); each report links the
+period's events on a first-report-wins basis. Anyone signed in can list
+reports, open a summary (totals, severity/status breakdown, top hotspots,
+average minutes-to-resolve), and download it as CSV — the export is
+formula-injection-safe. Staff see the card without the Generate button.
+
+### 4.2 Speech emotion recognition (SER)
+
+Every clip is also classified by `superb/wav2vec2-base-superb-er`
+(angry / happy / neutral / sad, ~380 MB on first use). If **angry** is
+detected with ≥ 0.60 confidence, the NLP threat score gets a **+0.15 boost**
+(capped at 1.0) *before* the alert decision, and every result is stored in the
+`emotion_analyses` table. Tune via `SER_ENABLED` / `SER_MODEL` / `SER_BOOST` /
+`SER_MIN_CONFIDENCE` in `.env`. Honest caveat: the 4-class model has no
+"fearful" class — screams are already covered by the scream-detection path, so
+SER mainly catches angry speech.
+
+### 4.3 Alert routing by location (FR16)
+
+Staff can be assigned to locations (`staff_locations` table). Admins always
+see all alerts; staff with assignments see only alerts from their locations
+(both the feed and the WebSocket push); staff with **no** assignments see
+everything (fail-open by design, so an unassigned account is never blind).
+Assignments are managed via the admin-only API in §9.
 
 ---
 
@@ -226,6 +269,65 @@ subscribers. Install Mosquitto, then set `MQTT_ENABLED=true` in `.env`.
 & "C:\Program Files\mosquitto\mosquitto_sub.exe" -h localhost -t "sams/alerts" -v
 ```
 
+### 6.1 Securing transport (WSS / MQTTS / HTTPS)
+
+**Current posture:** the LAN demo runs plain `ws://` + `http://` + `mqtt://`.
+That is acceptable for the FYP demo on a trusted school LAN, but a production
+deployment must encrypt all three transports (report §4.6, Security Design).
+
+**HTTPS + WSS (dashboard & PWA).** The easiest path is a TLS-terminating
+tunnel in front of the backend on port 8000 — no code or certificate setup:
+
+```powershell
+# cloudflared (free, no account needed for quick tunnels) — or ngrok http 8000
+cloudflared tunnel --url http://localhost:8000
+```
+
+This prints a public `https://…` URL. What happens to the WebSocket then
+depends on which frontend you use:
+
+- **Teacher PWA (`sams_mobile/app.js`)** derives its WS URL from the page
+  origin (`location.protocol === 'https:' ? 'wss' : 'ws'` + `location.host`),
+  so when the page is served over the tunnel's `https://` URL it automatically
+  upgrades to `wss://` — no changes needed.
+- **Central dashboard (`sams_dashboard/index.html`)** hardcodes
+  `const API = 'http://localhost:8000'` and
+  `const WS_URL = 'ws://localhost:8000/ws/dashboard'` (lines ~731–732). To use
+  it over a tunnel you must edit those two constants to the tunnel's
+  `https://…` / `wss://…/ws/dashboard` URLs (or refactor them to derive from
+  `location.origin` like the PWA does).
+
+**MQTTS (encrypted MQTT).** Give Mosquitto a TLS listener on port 8883
+(certificates from your school CA, an internal CA, or Let's Encrypt):
+
+```conf
+# mosquitto.conf — TLS listener
+listener 8883
+cafile   /etc/mosquitto/certs/ca.crt
+certfile /etc/mosquitto/certs/server.crt
+keyfile  /etc/mosquitto/certs/server.key
+```
+
+Then point the backend at it in `.env`:
+
+```env
+MQTT_USE_TLS=true
+MQTT_BROKER_PORT=8883
+```
+
+The backend's MQTT client calls paho's `tls_set()` when `MQTT_USE_TLS=true`,
+which validates the broker's certificate against the system CA store — so use
+a broker certificate signed by a CA the server trusts.
+
+**What is / isn't encrypted:**
+
+| Transport                        | LAN demo (default)     | Production (this section)        |
+|----------------------------------|------------------------|----------------------------------|
+| Dashboard/PWA pages + REST API   | `http://` — plaintext  | `https://` via tunnel/reverse proxy |
+| Dashboard/PWA WebSocket alerts   | `ws://` — plaintext    | `wss://` (automatic for the PWA; edit constants for the dashboard) |
+| MQTT fan-out (`sams/alerts`)     | `mqtt://1883` — plaintext | `mqtts://8883` (`MQTT_USE_TLS=true`) |
+| Backend → Groq / Supabase        | already `https://`     | already `https://`               |
+
 ---
 
 ## 7. Test the whole pipeline (no hardware needed)
@@ -266,9 +368,12 @@ cd sams_backend
 .\.venv\Scripts\python.exe -m pytest tests/ -v
 ```
 
-28 tests: MQTT service, NLP threat classifier, the STT→NLP processing
-pipeline (mocked AI, in-memory DB), and the JWT auth layer (login, token
-expiry, route protection, device API key, resolver stamping).
+~70 tests: MQTT service, NLP threat classifier, the STT→NLP processing
+pipeline (mocked AI, in-memory DB), the JWT auth layer (login, token expiry,
+route protection, device API key, resolver stamping), FR16 alert routing
+(feed + WebSocket filtering, admin assignment API), FR13 reports
+(generation, summaries, CSV export), and SER emotion analysis (boost logic,
+settings, storage).
 
 ---
 
@@ -320,9 +425,31 @@ GET  /api/analytics/trends?days=14       daily incident trend
 GET  /api/analytics/severity-breakdown   counts by severity
 ```
 
+**Reports (FR13)** — generation is admin-only; list/summary/export for all staff
+```
+POST /api/reports/generate?days=N        create a report for the last N days
+                                         (admin-only → 403 for staff;
+                                         first-report-wins event linking)
+GET  /api/reports/                       list reports
+GET  /api/reports/{id}                   summary: totals, severity/status
+                                         breakdown, top hotspots, avg
+                                         minutes-to-resolve
+GET  /api/reports/{id}/export.csv        CSV download (formula-injection-safe)
+```
+
+**Admin — staff location assignments (FR16)** — admin-only (staff get 403)
+```
+GET  /api/admin/staff                          staff list with assignments
+PUT  /api/admin/staff/{user_id}/locations      { "location_ids": ["loc-001", …] }
+```
+
 **Real-time**
 ```
 WS   /ws/dashboard?token=<jwt>   live alert push (JSON {type:"ALERT", …});
+                                 payload includes the SER result
+                                 (emotion + confidence) when available;
+                                 alerts are filtered by the user's staff
+                                 location assignments (§4.3);
                                  invalid token → close code 4401
 MQTT sams/alerts                 same alert payload (when MQTT_ENABLED=true)
 ```
@@ -350,16 +477,11 @@ MQTT sams/alerts                 same alert payload (when MQTT_ENABLED=true)
   contract (multipart `audio_file`); the active endpoint expects a
   `supabase_file_path` pointing at a clip already in the bucket. Use the §7
   two-step test instead until the simulator is rewritten.
-- **Acknowledge alerts (FR17):** the dashboard has resolve only; a separate
-  acknowledge step (per the use case diagram) is not implemented yet.
-- **Alert routing by role/proximity (FR16):** all signed-in staff receive all
-  alerts; per-location routing is future work.
-- **Multilingual NLP:** the active model is English-only; Malay/Manglish currently
-  relies on a keyword booster. Multilingual XLM-R model swap is planned.
-- **Speech Emotion Recognition (§2.1.3 of the report)** and **CCTV retrieval
-  from nearby authorized areas** are not implemented in this repo.
-- **Transport security:** WebSocket/MQTT run unencrypted on the LAN demo;
-  WSS/MQTTS per the report's Security Design needs a TLS-terminating deploy.
+- **CCTV retrieval from nearby authorized areas:** not implemented in this
+  repo (descoped).
+- **Transport security:** the hardening path (HTTPS/WSS/MQTTS) is documented
+  in §6.1, but the LAN demo still runs plain `http://` / `ws://` / `mqtt://`
+  by default — encrypting all three needs a TLS-terminating deploy.
 - **Edge integration:** real ESP32-C3 + INMP441 device (teammate's module)
   uploads to Supabase then notifies `/api/events/audio` — the backend
   auto-registers devices. When `DEVICE_API_KEY` is enabled, the firmware must

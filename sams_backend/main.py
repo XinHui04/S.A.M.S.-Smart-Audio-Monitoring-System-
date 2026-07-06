@@ -22,7 +22,10 @@ from api.events    import router as events_router
 from api.alerts    import router as alerts_router
 from api.analytics import router as analytics_router
 from api.auth      import router as auth_router
+from api.admin     import router as admin_router
+from api.reports   import router as reports_router
 from api.dependencies import get_ws_manager, get_mqtt, resolve_token_user, _SessionFactory
+from models.database import StaffLocation
 
 logging.basicConfig(
     level   = logging.INFO,
@@ -65,6 +68,8 @@ app.include_router(events_router)
 app.include_router(alerts_router)
 app.include_router(analytics_router)
 app.include_router(auth_router)
+app.include_router(admin_router)
+app.include_router(reports_router)
 
 
 # ── MODULE 4: WebSocket endpoint for dashboard real-time feed ─────────────────
@@ -79,11 +84,27 @@ async def dashboard_ws(websocket: WebSocket):
     before the handshake is accepted. If JWT_SECRET_KEY is unconfigured the
     connection is allowed (demo mode) with a warning.
     """
+    user_info = None   # None = unrestricted (FR16 fail-open, dev mode)
     if settings.jwt_secret_key:
         token = websocket.query_params.get("token")
         db = _SessionFactory()
         try:
             user = resolve_token_user(token, db)
+            if user is not None:
+                # FR16: load this user's location assignments for alert routing.
+                # No rows / empty list = unrestricted (fail-open — missing
+                # config must never hide a safety incident).
+                location_ids = [
+                    row.location_id
+                    for row in db.query(StaffLocation)
+                                 .filter(StaffLocation.user_id == user.user_id)
+                                 .all()
+                ]
+                user_info = {
+                    "user_id":      user.user_id,
+                    "role":         user.role,
+                    "location_ids": location_ids,
+                }
         finally:
             db.close()
         if user is None:
@@ -93,7 +114,7 @@ async def dashboard_ws(websocket: WebSocket):
         logger.warning("/ws/dashboard: JWT_SECRET_KEY not set — accepting unauthenticated connection (demo mode)")
 
     mgr = get_ws_manager()
-    await mgr.connect(websocket)
+    await mgr.connect(websocket, user_info=user_info)
     try:
         while True:
             # Keep connection alive; dashboard can send "ping" to check

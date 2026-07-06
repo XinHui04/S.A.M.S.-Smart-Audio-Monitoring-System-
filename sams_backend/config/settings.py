@@ -20,12 +20,28 @@ class Settings(BaseSettings):
     # STT: Groq API (free — https://console.groq.com)
     groq_api_key: str = ""
 
-    # NLP: RoBERTa offensive classifier (free, runs locally). Labels: offensive / non-offensive.
-    # NOTE: the previously-configured "cardiffnlp/twitter-xlm-roberta-base-offensive" does not
-    # exist on HuggingFace (404/401); this is the real Cardiff offensive model. The Malay/Manglish
-    # keyword layer in nlp_service.py supplements it for local slang.
-    nlp_model:              str   = "cardiffnlp/twitter-roberta-base-offensive"
+    # NLP: multilingual XLM-RoBERTa toxicity classifier (free, runs locally).
+    # Labels: toxic / neutral. Despite the repo name, the checkpoint is XLM-R
+    # BASE architecture (~278M params, ~1.1 GB fp32) — verified from its config.
+    # Adopted after measured validation (see FYP report): equal English toxic
+    # accuracy vs the English-only model, far better Malay/Manglish detection,
+    # zero benign false positives on the eval set.
+    # Fallback (English-only) option: "cardiffnlp/twitter-roberta-base-offensive"
+    # — set NLP_MODEL in .env to switch; nlp_service.py handles both label schemes.
+    # NOTE: "cardiffnlp/twitter-xlm-roberta-base-offensive" does NOT exist on
+    # HuggingFace (404) — do not configure it.
+    nlp_model:              str   = "textdetox/xlmr-large-toxicity-classifier"
     threat_score_threshold: float = 0.75
+
+    # SER: Speech Emotion Recognition (report §2.1.3) — wav2vec2 audio classifier
+    # (SUPERB/IEMOCAP, 4 classes: angry/happy/neutral/sad, ~380 MB, runs locally).
+    # When a negative emotion (angry/fearful) is detected with confidence >=
+    # ser_min_confidence, the NLP threat score is boosted by ser_boost (cap 1.0)
+    # before the alert-threshold comparison. SER failure never blocks the pipeline.
+    ser_enabled:        bool  = True
+    ser_model:          str   = "superb/wav2vec2-base-superb-er"
+    ser_boost:          float = 0.15
+    ser_min_confidence: float = 0.60
 
     # Module 3 — Reporting & Analytics
     # Database: set DATABASE_URL to a Supabase Postgres connection string to use the cloud.

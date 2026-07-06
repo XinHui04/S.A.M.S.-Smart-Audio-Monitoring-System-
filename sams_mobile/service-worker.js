@@ -9,7 +9,7 @@
    Scope is limited to /m/ because the worker is served from /m/.
    ────────────────────────────────────────────────────────────────────────── */
 
-const CACHE = 'sams-teacher-v2';   // bumped: JWT auth replaces the login shell
+const CACHE = 'sams-teacher-v3';   // bumped: alert acknowledge (FR17)
 
 // App-shell assets to precache. Paths are absolute under the /m/ scope.
 const SHELL = [

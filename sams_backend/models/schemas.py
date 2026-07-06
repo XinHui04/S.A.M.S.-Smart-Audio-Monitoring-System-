@@ -88,6 +88,10 @@ class UserOut(BaseModel):
     class Config:
         from_attributes = True
 
+class StaffLocationsUpdate(BaseModel):
+    """FR16: replaces a staff user's location assignments (empty = unrestricted)."""
+    location_ids: list[str] = Field(..., description="Location IDs assigned to the user")
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type:   str = "bearer"

@@ -12,7 +12,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from models.database import create_db_engine, get_session_factory, resolve_database_url, Location, Device, User
+from models.database import create_db_engine, get_session_factory, resolve_database_url, Location, Device, User, StaffLocation
 from utils.auth import hash_password
 from config.settings import get_settings
 
@@ -51,6 +51,12 @@ USERS = [
     },
 ]
 
+# FR16: staff → location assignments (email → location_ids).
+# Admin gets no rows — admins receive everything regardless.
+STAFF_LOCATIONS = {
+    "siti@school.edu.my": ["loc-001", "loc-003"],
+}
+
 
 def seed():
     engine  = create_db_engine(database_url=settings.database_url, sqlite_path=settings.sqlite_db_path)
@@ -82,6 +88,19 @@ def seed():
             ))
     db.commit()
     print(f"  {len(USERS)} users ready.")
+
+    print("Seeding staff location assignments (FR16)...")
+    n_assignments = 0
+    for email, location_ids in STAFF_LOCATIONS.items():
+        user = db.query(User).filter_by(email=email).first()
+        if not user:
+            continue
+        for lid in location_ids:
+            if not db.query(StaffLocation).filter_by(user_id=user.user_id, location_id=lid).first():
+                db.add(StaffLocation(user_id=user.user_id, location_id=lid))
+            n_assignments += 1
+    db.commit()
+    print(f"  {n_assignments} staff-location assignments ready.")
 
     db.close()
     _url    = resolve_database_url(settings.database_url, settings.sqlite_db_path)
