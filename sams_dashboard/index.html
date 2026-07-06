@@ -162,6 +162,7 @@
     text-transform: uppercase; font-family: var(--font-mono); letter-spacing: 0.5px;
   }
   .alert-card-status.resolved { color: var(--teal); }
+  .alert-card-status.acknowledged { color: var(--amber); }
 
   /* ── Detail panel ────────────────────────────────────────────────────────── */
   .detail { display: flex; flex-direction: column; overflow: hidden; }
@@ -176,7 +177,7 @@
 
   /* ── Stats strip ─────────────────────────────────────────────────────────── */
   .stats-strip {
-    display: grid; grid-template-columns: repeat(4, 1fr);
+    display: grid; grid-template-columns: repeat(5, 1fr);
     gap: 1px; background: var(--border);
     border-bottom: 1px solid var(--border);
   }
@@ -336,6 +337,21 @@
   .resolved-msg {
     display: flex; align-items: center; gap: 8px;
     color: var(--teal); font-size: 13px; font-weight: 500;
+  }
+  .ack-btn {
+    margin-bottom: 12px; padding: 6px 14px;
+    background: none; color: var(--amber);
+    border: 1px solid var(--amber); border-radius: var(--radius);
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    font-family: var(--font-ui);
+    transition: all 0.15s;
+  }
+  .ack-btn:hover    { background: var(--amber-dim); }
+  .ack-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .ack-msg {
+    display: flex; align-items: center; gap: 8px;
+    color: var(--amber); font-size: 12px; font-weight: 500;
+    margin-bottom: 12px;
   }
 
   /* ── Toast notification ──────────────────────────────────────────────────── */
@@ -554,6 +570,7 @@
       <div id="tab-alerts" style="display:flex; flex-direction:column; flex:1; overflow:hidden;">
         <div class="filters">
           <button class="filter-btn active" onclick="setFilter('active', this)">Active</button>
+          <button class="filter-btn" onclick="setFilter('acknowledged', this)">Ack'd</button>
           <button class="filter-btn" onclick="setFilter('all', this)">All</button>
           <button class="filter-btn" onclick="setFilter('resolved', this)">Resolved</button>
           <button class="filter-btn" style="margin-left:auto" onclick="setFilter('high', this)">High</button>
@@ -581,6 +598,10 @@
         <div class="stat-cell">
           <div class="stat-label">Active Alerts</div>
           <div class="stat-value red" id="stat-active">—</div>
+        </div>
+        <div class="stat-cell">
+          <div class="stat-label">Acknowledged</div>
+          <div class="stat-value amber" id="stat-ack">—</div>
         </div>
         <div class="stat-cell">
           <div class="stat-label">High Severity</div>
@@ -870,8 +891,10 @@ function playAlertSound(severity) {
 async function loadAlerts() {
   try {
     const sev    = filterSev ? `&severity=${filterSev}` : '';
+    // "active" view maps to the server's "open" status (active + acknowledged)
+    // so acknowledged alerts stay visible until resolved.
     const status = filterStatus === 'high' || filterStatus === 'medium' || filterStatus === 'low'
-                   ? 'all' : filterStatus;
+                   ? 'all' : (filterStatus === 'active' ? 'open' : filterStatus);
     const res  = await authFetch(`${API}/api/alerts/?status=${status}${sev}&per_page=50`);
     const data = await res.json();
     alerts = data.alerts || [];
@@ -887,10 +910,11 @@ async function loadStats() {
     const res  = await authFetch(`${API}/api/alerts/stats`);
     const data = await res.json();
     document.getElementById('stat-active').textContent   = data.active_alerts ?? '—';
+    document.getElementById('stat-ack').textContent      = data.acknowledged_alerts ?? '—';
     document.getElementById('stat-high').textContent     = data.high ?? '—';
     document.getElementById('stat-resolved').textContent = data.resolved_alerts ?? '—';
     document.getElementById('stat-total').textContent    =
-      (data.active_alerts || 0) + (data.resolved_alerts || 0);
+      (data.active_alerts || 0) + (data.acknowledged_alerts || 0) + (data.resolved_alerts || 0);
     document.getElementById('alert-count-badge').textContent =
       data.active_alerts > 0 ? ` (${data.active_alerts})` : '';
   } catch(_) {}
@@ -901,8 +925,10 @@ function renderAlertList() {
   const list = document.getElementById('alert-list');
   let   data = [...alerts];
 
-  if (filterStatus === 'active')   data = data.filter(a => a.status === 'active');
-  if (filterStatus === 'resolved') data = data.filter(a => a.status === 'resolved');
+  // Default "active" view includes acknowledged alerts (server "open" status)
+  if (filterStatus === 'active')       data = data.filter(a => a.status === 'active' || a.status === 'acknowledged');
+  if (filterStatus === 'acknowledged') data = data.filter(a => a.status === 'acknowledged');
+  if (filterStatus === 'resolved')     data = data.filter(a => a.status === 'resolved');
   if (filterStatus === 'high')     data = data.filter(a => a.severity === 'high');
   if (filterStatus === 'medium')   data = data.filter(a => a.severity === 'medium');
   if (filterStatus === 'low')      data = data.filter(a => a.severity === 'low');
@@ -948,6 +974,7 @@ function renderDetail(alert) {
   const scoreW  = Math.round(score * 100);
   const sev     = alert.severity || 'low';
   const isRes   = alert.status === 'resolved';
+  const isAck   = alert.status === 'acknowledged';
   const transcript = alert.transcript || 'No speech detected in this clip.';
   const fmt = (v, unit, dp = 1) => (v === null || v === undefined) ? '—' : Number(v).toFixed(dp) + unit;
   const intensityTxt = fmt(alert.intensity, ' dB', 1);
@@ -963,6 +990,7 @@ function renderDetail(alert) {
           <span class="meta-pill">${escHtml(alert.classification || '—')}</span>
           <span class="meta-pill">${formatDateTime(alert.created_at)}</span>
           ${isRes ? `<span class="meta-pill" style="color:var(--teal)">✓ resolved</span>` : ''}
+          ${isAck ? `<span class="meta-pill" style="color:var(--amber)">acknowledged</span>` : ''}
         </div>
       </div>
     </div>
@@ -1032,6 +1060,18 @@ function renderDetail(alert) {
           Resolved — ${escHtml(alert.resolution_notes || '')}
         </div>
       ` : `
+        ${isAck ? `
+          <div class="ack-msg">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>
+            </svg>
+            Acknowledged — being handled
+          </div>
+        ` : `
+          <button class="ack-btn" onclick="acknowledgeAlert('${alert.alert_id}')">
+            Acknowledge
+          </button>
+        `}
         <div class="resolve-title">Resolve Incident</div>
         <textarea class="resolve-notes" id="resolve-notes"
           placeholder="Describe your investigation and outcome…"></textarea>
@@ -1072,6 +1112,30 @@ async function toggleAudio(url, btn) {
   }
   await currentAudio.play();
   btn.innerHTML = `<svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M5.5 3.5A1.5 1.5 0 0 1 7 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5m5 0A1.5 1.5 0 0 1 12 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5"/></svg>`;
+}
+
+// ── Acknowledge alert ──────────────────────────────────────────────────────────
+async function acknowledgeAlert(alertId) {
+  const btn = document.querySelector('.ack-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Acknowledging…'; }
+
+  try {
+    const res = await authFetch(`${API}/api/alerts/${alertId}/acknowledge`, {
+      method: 'PUT',
+    });
+    if (res.ok || res.status === 409) {
+      // 409 = already acknowledged/resolved elsewhere — refresh to sync either way
+      const a = alerts.find(x => x.alert_id === alertId);
+      if (a && a.status === 'active') a.status = 'acknowledged';
+      await loadAlerts();
+      await loadStats();
+      selectAlert(alertId);
+    } else {
+      if (btn) { btn.disabled = false; btn.textContent = 'Acknowledge'; }
+    }
+  } catch(e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Acknowledge'; }
+  }
 }
 
 // ── Resolve alert ──────────────────────────────────────────────────────────────
@@ -1180,7 +1244,7 @@ function switchTab(tab, el) {
 function setFilter(val, el) {
   document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
   el.classList.add('active');
-  if (['active','resolved','all'].includes(val)) { filterStatus = val; filterSev = null; }
+  if (['active','acknowledged','resolved','all'].includes(val)) { filterStatus = val; filterSev = null; }
   else { filterSev = val; filterStatus = 'all'; }
   loadAlerts();
 }

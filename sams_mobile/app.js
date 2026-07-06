@@ -9,6 +9,7 @@
      GET  /api/alerts/?status=&severity=&per_page=   → feed
      GET  /api/alerts/stats                          → counters
      GET  /api/alerts/{id}                           → full detail
+     PUT  /api/alerts/{id}/acknowledge               → acknowledge (FR17)
      PUT  /api/alerts/{id}/resolve                   → resolve w/ notes
      WS   /ws/dashboard                              → live alert push
 
@@ -29,7 +30,7 @@ const SESSION_KEY = 'sams.teacher.session';
 // ── State ───────────────────────────────────────────────────────────────────
 let alerts       = [];
 let selectedId   = null;
-let filterStatus = 'active';   // active | all | resolved
+let filterStatus = 'open';     // open (active+acknowledged) | active | acknowledged | resolved | all
 let filterSev    = null;       // null | high | medium | low
 let ws           = null;
 let currentAudio = null;
@@ -237,7 +238,7 @@ async function loadStats() {
     const d = await res.json();
     $('stat-active').textContent = d.active_alerts ?? '—';
     $('stat-high').textContent   = d.high ?? '—';
-    $('stat-total').textContent  = (d.active_alerts || 0) + (d.resolved_alerts || 0);
+    $('stat-total').textContent  = (d.active_alerts || 0) + (d.acknowledged_alerts || 0) + (d.resolved_alerts || 0);
   } catch {}
 }
 
@@ -245,8 +246,10 @@ async function loadStats() {
 function renderList() {
   const list = $('list');
   let data = [...alerts];
-  if (filterStatus === 'active')   data = data.filter((a) => a.status === 'active');
-  if (filterStatus === 'resolved') data = data.filter((a) => a.status === 'resolved');
+  if (filterStatus === 'open')         data = data.filter((a) => a.status === 'active' || a.status === 'acknowledged');
+  if (filterStatus === 'active')       data = data.filter((a) => a.status === 'active');
+  if (filterStatus === 'acknowledged') data = data.filter((a) => a.status === 'acknowledged');
+  if (filterStatus === 'resolved')     data = data.filter((a) => a.status === 'resolved');
   if (filterSev)                   data = data.filter((a) => a.severity === filterSev);
 
   if (!data.length) { list.innerHTML = '<div class="empty">No alerts match this filter.</div>'; return; }
@@ -289,6 +292,7 @@ function renderDetail(a) {
   const score = a.threat_score ?? 0;
   const scoreW = Math.round(score * 100);
   const isRes = a.status === 'resolved';
+  const isAck = a.status === 'acknowledged';
   const fmt = (v, unit, dp = 1) => (v === null || v === undefined) ? '—' : Number(v).toFixed(dp) + unit;
   const edgeConf = (a.edge_confidence === null || a.edge_confidence === undefined)
     ? '—' : Math.round(a.edge_confidence * 100) + '%';
@@ -300,6 +304,7 @@ function renderDetail(a) {
       <span class="pill">${escHtml(a.classification || '—')}</span>
       <span class="pill">${fmtDateTime(a.created_at)}</span>
       ${isRes ? '<span class="pill teal">✓ resolved</span>' : ''}
+      ${isAck ? '<span class="pill amber">acknowledged</span>' : ''}
     </div>
 
     <div class="label">Threat score</div>
@@ -330,6 +335,12 @@ function renderDetail(a) {
           <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
           Resolved${a.resolution_notes ? ' — ' + escHtml(a.resolution_notes) : ''}
         </div>` : `
+        ${isAck ? `
+        <div class="ack-note">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+          Acknowledged — this incident is being handled.
+        </div>` : `
+        <button class="btn-ack" id="ack-btn">Acknowledge — I’m on it</button>`}
         <div class="label">Respond &amp; resolve</div>
         <textarea id="resolve-notes" placeholder="Describe what you found and the action taken…"></textarea>
         <button class="btn-primary" id="resolve-btn">Mark resolved</button>`}
@@ -342,6 +353,9 @@ function renderDetail(a) {
   }
   if (!isRes) {
     $('resolve-btn').addEventListener('click', () => resolveAlert(a.alert_id));
+    if (a.status === 'active') {
+      $('ack-btn').addEventListener('click', () => acknowledgeAlert(a.alert_id));
+    }
   }
 }
 
@@ -363,6 +377,34 @@ async function toggleAudio(url, btn) {
     currentAudio.onended = () => { btn.innerHTML = ICON_PLAY; const el = $('audio-time'); if (el) el.textContent = '0:00'; };
   }
   try { await currentAudio.play(); btn.innerHTML = ICON_PAUSE; } catch {}
+}
+
+// ── Acknowledge (FR17) ──────────────────────────────────────────────────────
+// Marks an active alert as "acknowledged" (a teacher is on the way). The alert
+// stays open — Resolve remains available until it is closed with notes.
+async function acknowledgeAlert(alertId) {
+  const btn = $('ack-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Acknowledging…'; }
+  try {
+    const res = await authFetch(`${API}/api/alerts/${encodeURIComponent(alertId)}/acknowledge`, {
+      method: 'PUT',
+    });
+    if (res.ok) {
+      const a = alerts.find((x) => x.alert_id === alertId);
+      if (a) a.status = 'acknowledged';
+      await loadStats();
+      renderList();
+      selectAlert(alertId);
+    } else if (res.status === 409) {
+      // Someone else already acknowledged/resolved it — refetch the truth.
+      selectAlert(alertId);
+      loadAlerts();
+    } else if (btn) {
+      btn.disabled = false; btn.textContent = 'Acknowledge — I’m on it';
+    }
+  } catch {
+    if (btn) { btn.disabled = false; btn.textContent = 'Acknowledge — I’m on it'; }
+  }
 }
 
 // ── Resolve ─────────────────────────────────────────────────────────────────
@@ -396,7 +438,7 @@ async function resolveAlert(alertId) {
 function setFilter(val, el) {
   document.querySelectorAll('.chip').forEach((c) => c.classList.remove('active'));
   el.classList.add('active');
-  if (['active', 'resolved', 'all'].includes(val)) { filterStatus = val; filterSev = null; }
+  if (['open', 'active', 'acknowledged', 'resolved', 'all'].includes(val)) { filterStatus = val; filterSev = null; }
   else { filterSev = val; filterStatus = 'all'; }
   loadAlerts();
 }

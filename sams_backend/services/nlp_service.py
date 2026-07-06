@@ -14,6 +14,14 @@ Two-layer approach (Section 2.1.2):
 
 Output: ThreatResult with score (0–1), severity, classification
 """
+import os
+
+# ── Force the PyTorch backend for transformers ───────────────────────────────
+# tensorflow 2.16 (installed for the scream model) bundles Keras 3, which
+# breaks transformers 4.41's TF backend — must be set BEFORE transformers loads
+os.environ.setdefault("USE_TF", "0")
+os.environ.setdefault("USE_TORCH", "1")
+
 import logging
 from dataclasses import dataclass, field
 
