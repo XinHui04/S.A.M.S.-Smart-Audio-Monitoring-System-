@@ -65,49 +65,20 @@ class ScreamAnalyzer:
             logger.error(f"Failed to load TFLite model: {e}")
             self.model = None
    
+
     def _extract_features(self, audio: np.ndarray) -> np.ndarray:
-        """
-        Feature extraction that EXACTLY matches training code
-        """
-
-
-        # ==================================================
-        # FIX #2
-        # Match training duration exactly (1 second)
-        # ==================================================
-        if len(audio) > SAMPLE_RATE:
-            audio = audio[:SAMPLE_RATE]
-
-
+        """Feature extraction on a single 1-second window"""
+        # Pad if shorter than 1 second
         if len(audio) < SAMPLE_RATE:
-            audio = np.pad(
-                audio,
-                (0, SAMPLE_RATE - len(audio)),
-                mode="constant"
-            )
+            audio = np.pad(audio, (0, SAMPLE_RATE - len(audio)), mode="constant")
+        
+        # Always take exactly 1 second
+        audio = audio[:SAMPLE_RATE].astype(np.float32)
 
-
-        audio = audio.astype(np.float32)
-
-
-        # ==================================================
-        # FIX #1
-        # STFT identical to training
-        # ==================================================
-        stft = tf.signal.stft(
-            audio,
-            frame_length=FRAME_LENGTH,
-            frame_step=FRAME_STEP,
-            fft_length=512
-        )
-
-
+        stft = tf.signal.stft(audio, frame_length=FRAME_LENGTH,
+                            frame_step=FRAME_STEP, fft_length=512)
         spectrogram = tf.abs(stft)
 
-
-        # ==================================================
-        # Mel matrix identical to training
-        # ==================================================
         mel_matrix = tf.signal.linear_to_mel_weight_matrix(
             num_mel_bins=MEL_BINS,
             num_spectrogram_bins=spectrogram.shape[-1],
@@ -116,71 +87,24 @@ class ScreamAnalyzer:
             upper_edge_hertz=UPPER_FREQ
         )
 
-
-        mel_spectrogram = tf.matmul(
-            spectrogram,
-            mel_matrix
-        )
-
-
-        # ==================================================
-        # Log identical to training
-        # ==================================================
-        log_mel = tf.math.log(
-            mel_spectrogram + 1e-6
-        )
-
-
-        # ==================================================
-        # FIX #3
-        # Per-frame normalization identical to training
-        # ==================================================
-        # mean = tf.reduce_mean(
-        #     log_mel,
-        #     axis=-1,
-        #     keepdims=True
-        # )
-
-
-        # std = tf.math.reduce_std(
-        #     log_mel,
-        #     axis=-1,
-        #     keepdims=True
-        # )
-
-        # log_mel = (
-        #     log_mel - mean
-        # ) / (
-        #     std + 1e-6
-        # )
+        mel_spectrogram = tf.matmul(spectrogram, mel_matrix)
+        log_mel = tf.math.log(mel_spectrogram + 1e-6)
 
         mean = tf.reduce_mean(log_mel)
         std = tf.math.reduce_std(log_mel)
         log_mel = (log_mel - mean) / (std + 1e-6)
 
         features = log_mel.numpy().astype(np.float32)
+        return features.reshape(1, MEL_FRAMES, MEL_BINS, 1)
 
 
-        logger.info(
-            f"Feature shape: {features.shape}"
-        )
-
-
-        logger.info(
-            f"Feature stats: "
-            f"min={features.min():.3f}, "
-            f"max={features.max():.3f}, "
-            f"mean={features.mean():.3f}, "
-            f"std={features.std():.3f}"
-        )
-
-
-        return features.reshape(
-            1,
-            MEL_FRAMES,
-            MEL_BINS,
-            1
-        )    
+    def _run_inference_on_window(self, window: np.ndarray) -> float:
+        """Run TFLite inference on a single 1-second window, returns confidence"""
+        features = self._extract_features(window)
+        self.model.set_tensor(self.input_details[0]['index'], features)
+        self.model.invoke()
+        output = self.model.get_tensor(self.output_details[0]['index'])
+        return float(output.flatten()[0])
 
 
     def _extract_audio_array(self, audio_bytes: bytes) -> np.ndarray:
@@ -251,185 +175,404 @@ class ScreamAnalyzer:
             return np.zeros(SAMPLE_RATE, dtype=np.float32)
        
     def analyze(self, audio_bytes: bytes) -> Dict[str, Any]:
-        """
-        Analyze audio bytes for scream detection
-       
-        Returns:
-            {
-                'confidence': float (0-1),
-                'is_scream': bool,
-                'error': str or None
-            }
-        """
         try:
-            # ── Check if we have valid WAV or raw PCM ──────────────────────────
-            if len(audio_bytes) < 44:
-                logger.error(f"Audio too short: {len(audio_bytes)} bytes")
-                return {
-                    'confidence': 0.0,
-                    'is_scream': False,
-                    'error': 'Audio too short'
-                }
-           
-            # Check if it's a valid WAV file (has RIFF header)
-            riff = audio_bytes[0:4]
-            wave = audio_bytes[8:12]
-           
-            if riff == b'RIFF' and wave == b'WAVE':
-                # Valid WAV file - try to read with soundfile first
-                # try:
-                #     with tempfile.NamedTemporaryFile(suffix='.wav', delete=True) as tmp:
-                #         tmp.write(audio_bytes)
-                #         tmp.flush()
-                #         audio, sr = sf.read(tmp.name)
-                # except Exception as e:
-                #     logger.warning(f"soundfile failed, reading raw PCM: {e}")
-                #     # Read raw PCM from the data chunk
-                #     # WAV header is 44 bytes, data starts at offset 44
-                #     audio = np.frombuffer(audio_bytes[44:], dtype=np.int16).astype(np.float32) / 32768.0
-                #     sr = SAMPLE_RATE
-                tmp_path = None
-                try:
-                    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
-                        tmp.write(audio_bytes)
-                        tmp_path = tmp.name
-                    audio, sr = sf.read(tmp_path)   # file is closed now, safe to read
-                except Exception as e:
-                    logger.warning(f"soundfile failed, reading raw PCM: {e}")
-                    audio = np.frombuffer(audio_bytes[44:], dtype=np.int16).astype(np.float32) / 32768.0
-                    sr = SAMPLE_RATE
-                finally:
-                    if tmp_path and os.path.exists(tmp_path):
-                        os.remove(tmp_path)
-            else:
-                # Not a valid WAV - try to read as raw PCM
-                logger.info("Reading as raw PCM (no WAV header)")
-                audio = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+            # ── Load audio ────────────────────────────────────────────────────
+            tmp_path = None
+            try:
+                with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
+                    tmp.write(audio_bytes)
+                    tmp_path = tmp.name
+                audio, sr = sf.read(tmp_path)
+            except Exception as e:
+                logger.warning(f"soundfile failed, reading raw PCM: {e}")
+                audio = np.frombuffer(audio_bytes[44:], dtype=np.int16).astype(np.float32) / 32768.0
                 sr = SAMPLE_RATE
-           
-            # ── Resample to 16kHz if needed ──────────────────────────────────────
-            if sr != SAMPLE_RATE:
-                try:
-                    import librosa
-                    audio = librosa.resample(audio, orig_sr=sr, target_sr=SAMPLE_RATE)
-                except ImportError:
-                    logger.warning("librosa not installed, skipping resample")
-           
+            finally:
+                if tmp_path and os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+
             # Convert stereo to mono
             if audio.ndim > 1:
                 audio = audio.mean(axis=1)
-           
-            # Ensure we have at least 1 second of audio
-            if len(audio) < SAMPLE_RATE:
-                logger.warning(f"Audio too short: {len(audio)} samples, padding...")
-                audio = np.pad(audio, (0, SAMPLE_RATE - len(audio)), 'constant')
-           
-            logger.info(f"Audio loaded: {len(audio)} samples, sr={sr}")
-           
-            # ── Extract features ──────────────────────────────────────────────────
-            features = self._extract_features(audio)
-           
-            # ── Run inference ─────────────────────────────────────────────────────
-            if self.model is not None:
-                try:
-                    logger.info(
-                        f"Input shape: {features.shape}"
-                    )
 
+            # Resample if needed
+            if sr != SAMPLE_RATE:
+                import librosa
+                audio = librosa.resample(audio, orig_sr=sr, target_sr=SAMPLE_RATE)
 
-                    logger.info(
-                        f"Input min={features.min():.4f}, "
-                        f"max={features.max():.4f}, "
-                        f"mean={features.mean():.4f}"
-                    )
+            audio = audio.astype(np.float32)
+            total_samples = len(audio)
+            total_seconds = total_samples / SAMPLE_RATE
+            logger.info(f"Audio loaded: {total_samples} samples ({total_seconds:.1f}s)")
 
+            # ── Sliding window across full clip ───────────────────────────────
+            # Step = 0.5s so windows overlap — catches screams at boundaries
+            WINDOW_SAMPLES = SAMPLE_RATE          # 1 second
+            STEP_SAMPLES   = SAMPLE_RATE // 2     # 0.5 second hop
 
-                    self.model.set_tensor(self.input_details[0]['index'], features.astype(np.float32))
-                    self.model.invoke()
-                    # output = self.model.get_tensor(self.output_details[0]['index'])
-                    # logger.info(f"Output shape: {output.shape}")
-                    # logger.info(f"Output value: {output}")
-                    # confidence = float(output[0][1]) if output.shape[1] > 1 else float(output[0][0])
-                    # logger.info(f"TFLite inference complete: confidence={confidence:.3f}")
-                    output = self.model.get_tensor(
-                        self.output_details[0]['index']
-                    )
-
-
-                    logger.info(f"Output shape: {output.shape}")
-                    logger.info(f"Output raw: {output}")
-
-
-                    out_detail = self.output_details[0]
-
-
-                    if out_detail["dtype"] != np.float32:
-
-
-                        scale, zero_point = out_detail["quantization"]
-
-
-                        logger.info(
-                            f"Output quantization: "
-                            f"scale={scale}, "
-                            f"zero_point={zero_point}"
-                        )
-
-
-                        confidence = (
-                            float(output.flatten()[0]) - zero_point
-                        ) * scale
-
-
-                    else:
-                        confidence = float(output.flatten()[0])
-
-
-                    logger.info(
-                        f"Confidence extracted = {confidence:.6f}"
-                    )
-
-
-                    logger.info(
-                        f"Input details: {self.input_details}"
-                    )
-
-
-                    logger.info(
-                        f"Output details: {self.output_details}"
-                    )
-
-
-                except Exception as e:
-                    logger.error(f"TFLite inference failed: {e}")
-                    # Fallback to energy detection
-                    rms = np.sqrt(np.mean(audio ** 2))
-                    confidence = min(1.0, rms * 10.0)
-                    logger.info(f"Using fallback detection: confidence={confidence:.3f}")
-            else:
-                # Fallback: use simple energy-based detection
-                rms = np.sqrt(np.mean(audio ** 2))
+            if self.model is None:
+                # Fallback: RMS energy across full clip
+                rms = float(np.sqrt(np.mean(audio ** 2)))
                 confidence = min(1.0, rms * 10.0)
-                logger.info(f"Fallback detection: rms={rms:.4f}, confidence={confidence:.3f}")
-           
-            # ── Determine if scream ──────────────────────────────────────────────
-            # is_scream = confidence >= 0.50
-            BEST_THRESHOLD = 0.30  # example from training logs
-            is_scream = bool(confidence >= BEST_THRESHOLD)
+                logger.info(f"Fallback RMS confidence: {confidence:.3f}")
+                return {
+                    'confidence': confidence,
+                    'is_scream': bool(confidence >= 0.30),
+                    'error': None
+                }
 
+            window_results = []
+            window_num = 0
+
+            for start in range(0, total_samples - WINDOW_SAMPLES + 1, STEP_SAMPLES):
+                window = audio[start : start + WINDOW_SAMPLES]
+                conf = self._run_inference_on_window(window)
+                window_results.append((start / SAMPLE_RATE, conf))
+                logger.info(f"  Window {window_num} "
+                            f"({start/SAMPLE_RATE:.1f}s–{(start+WINDOW_SAMPLES)/SAMPLE_RATE:.1f}s): "
+                            f"confidence={conf:.3f}")
+                window_num += 1
+
+            # Handle tail — if clip doesn't divide evenly, analyze the last second
+            last_start = total_samples - WINDOW_SAMPLES
+            if last_start > 0 and (last_start % STEP_SAMPLES) != 0:
+                window = audio[last_start:]
+                conf = self._run_inference_on_window(window)
+                window_results.append((last_start / SAMPLE_RATE, conf))
+                logger.info(f"  Tail window ({last_start/SAMPLE_RATE:.1f}s–{total_seconds:.1f}s): "
+                            f"confidence={conf:.3f}")
+
+            if not window_results:
+                # Clip shorter than 1 second — analyze what we have
+                conf = self._run_inference_on_window(audio)
+                window_results.append((0.0, conf))
+
+            # ── Aggregate: any window ≥ threshold = scream detected ──────────
+            THRESHOLD = 0.30
+            max_confidence = max(conf for _, conf in window_results)
+            best_time      = max(window_results, key=lambda x: x[1])[0]
+            is_scream      = bool(max_confidence >= THRESHOLD)
+
+            logger.info(f"Sliding window summary: "
+                        f"{window_num} windows, "
+                        f"max_confidence={max_confidence:.3f} at t={best_time:.1f}s, "
+                        f"is_scream={is_scream}")
 
             return {
-                'confidence': confidence,
-                'is_scream': is_scream,
-                'error': None
+                'confidence': max_confidence,
+                'is_scream':  is_scream,
+                'error':      None
             }
-           
+
         except Exception as e:
             logger.error(f"Analysis error: {e}")
             import traceback
             traceback.print_exc()
-            return {
-                'confidence': 0.0,
-                'is_scream': False,
-                'error': str(e)
-            }
+            return {'confidence': 0.0, 'is_scream': False, 'error': str(e)}
+
+
+
+
+
+# OLD CODE BELOW — KEEP FOR REFERENCE 
+    # def analyze(self, audio_bytes: bytes) -> Dict[str, Any]:
+    #     """
+    #     Analyze audio bytes for scream detection
+       
+    #     Returns:
+    #         {
+    #             'confidence': float (0-1),
+    #             'is_scream': bool,
+    #             'error': str or None
+    #         }
+    #     """
+    #     try:
+    #         # ── Check if we have valid WAV or raw PCM ──────────────────────────
+    #         if len(audio_bytes) < 44:
+    #             logger.error(f"Audio too short: {len(audio_bytes)} bytes")
+    #             return {
+    #                 'confidence': 0.0,
+    #                 'is_scream': False,
+    #                 'error': 'Audio too short'
+    #             }
+           
+    #         # Check if it's a valid WAV file (has RIFF header)
+    #         riff = audio_bytes[0:4]
+    #         wave = audio_bytes[8:12]
+           
+    #         if riff == b'RIFF' and wave == b'WAVE':
+    #             # Valid WAV file - try to read with soundfile first
+    #             # try:
+    #             #     with tempfile.NamedTemporaryFile(suffix='.wav', delete=True) as tmp:
+    #             #         tmp.write(audio_bytes)
+    #             #         tmp.flush()
+    #             #         audio, sr = sf.read(tmp.name)
+    #             # except Exception as e:
+    #             #     logger.warning(f"soundfile failed, reading raw PCM: {e}")
+    #             #     # Read raw PCM from the data chunk
+    #             #     # WAV header is 44 bytes, data starts at offset 44
+    #             #     audio = np.frombuffer(audio_bytes[44:], dtype=np.int16).astype(np.float32) / 32768.0
+    #             #     sr = SAMPLE_RATE
+    #             tmp_path = None
+    #             try:
+    #                 with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
+    #                     tmp.write(audio_bytes)
+    #                     tmp_path = tmp.name
+    #                 audio, sr = sf.read(tmp_path)   # file is closed now, safe to read
+    #             except Exception as e:
+    #                 logger.warning(f"soundfile failed, reading raw PCM: {e}")
+    #                 audio = np.frombuffer(audio_bytes[44:], dtype=np.int16).astype(np.float32) / 32768.0
+    #                 sr = SAMPLE_RATE
+    #             finally:
+    #                 if tmp_path and os.path.exists(tmp_path):
+    #                     os.remove(tmp_path)
+    #         else:
+    #             # Not a valid WAV - try to read as raw PCM
+    #             logger.info("Reading as raw PCM (no WAV header)")
+    #             audio = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+    #             sr = SAMPLE_RATE
+           
+    #         # ── Resample to 16kHz if needed ──────────────────────────────────────
+    #         if sr != SAMPLE_RATE:
+    #             try:
+    #                 import librosa
+    #                 audio = librosa.resample(audio, orig_sr=sr, target_sr=SAMPLE_RATE)
+    #             except ImportError:
+    #                 logger.warning("librosa not installed, skipping resample")
+           
+    #         # Convert stereo to mono
+    #         if audio.ndim > 1:
+    #             audio = audio.mean(axis=1)
+           
+    #         # Ensure we have at least 1 second of audio
+    #         if len(audio) < SAMPLE_RATE:
+    #             logger.warning(f"Audio too short: {len(audio)} samples, padding...")
+    #             audio = np.pad(audio, (0, SAMPLE_RATE - len(audio)), 'constant')
+           
+    #         logger.info(f"Audio loaded: {len(audio)} samples, sr={sr}")
+           
+    #         # ── Extract features ──────────────────────────────────────────────────
+    #         features = self._extract_features(audio)
+           
+    #         # ── Run inference ─────────────────────────────────────────────────────
+    #         if self.model is not None:
+    #             try:
+    #                 logger.info(
+    #                     f"Input shape: {features.shape}"
+    #                 )
+
+
+    #                 logger.info(
+    #                     f"Input min={features.min():.4f}, "
+    #                     f"max={features.max():.4f}, "
+    #                     f"mean={features.mean():.4f}"
+    #                 )
+
+
+    #                 self.model.set_tensor(self.input_details[0]['index'], features.astype(np.float32))
+    #                 self.model.invoke()
+    #                 # output = self.model.get_tensor(self.output_details[0]['index'])
+    #                 # logger.info(f"Output shape: {output.shape}")
+    #                 # logger.info(f"Output value: {output}")
+    #                 # confidence = float(output[0][1]) if output.shape[1] > 1 else float(output[0][0])
+    #                 # logger.info(f"TFLite inference complete: confidence={confidence:.3f}")
+    #                 output = self.model.get_tensor(
+    #                     self.output_details[0]['index']
+    #                 )
+
+
+    #                 logger.info(f"Output shape: {output.shape}")
+    #                 logger.info(f"Output raw: {output}")
+
+
+    #                 out_detail = self.output_details[0]
+
+
+    #                 if out_detail["dtype"] != np.float32:
+
+
+    #                     scale, zero_point = out_detail["quantization"]
+
+
+    #                     logger.info(
+    #                         f"Output quantization: "
+    #                         f"scale={scale}, "
+    #                         f"zero_point={zero_point}"
+    #                     )
+
+
+    #                     confidence = (
+    #                         float(output.flatten()[0]) - zero_point
+    #                     ) * scale
+
+
+    #                 else:
+    #                     confidence = float(output.flatten()[0])
+
+
+    #                 logger.info(
+    #                     f"Confidence extracted = {confidence:.6f}"
+    #                 )
+
+
+    #                 logger.info(
+    #                     f"Input details: {self.input_details}"
+    #                 )
+
+
+    #                 logger.info(
+    #                     f"Output details: {self.output_details}"
+    #                 )
+
+
+    #             except Exception as e:
+    #                 logger.error(f"TFLite inference failed: {e}")
+    #                 # Fallback to energy detection
+    #                 rms = np.sqrt(np.mean(audio ** 2))
+    #                 confidence = min(1.0, rms * 10.0)
+    #                 logger.info(f"Using fallback detection: confidence={confidence:.3f}")
+    #         else:
+    #             # Fallback: use simple energy-based detection
+    #             rms = np.sqrt(np.mean(audio ** 2))
+    #             confidence = min(1.0, rms * 10.0)
+    #             logger.info(f"Fallback detection: rms={rms:.4f}, confidence={confidence:.3f}")
+           
+    #         # ── Determine if scream ──────────────────────────────────────────────
+    #         # is_scream = confidence >= 0.50
+    #         BEST_THRESHOLD = 0.30  # example from training logs
+    #         is_scream = bool(confidence >= BEST_THRESHOLD)
+
+
+    #         return {
+    #             'confidence': confidence,
+    #             'is_scream': is_scream,
+    #             'error': None
+    #         }
+           
+    #     except Exception as e:
+    #         logger.error(f"Analysis error: {e}")
+    #         import traceback
+    #         traceback.print_exc()
+    #         return {
+    #             'confidence': 0.0,
+    #             'is_scream': False,
+    #             'error': str(e)
+    #         }
+
+
+    # def _extract_features(self, audio: np.ndarray) -> np.ndarray:
+    #     """
+    #     Feature extraction that EXACTLY matches training code
+    #     """
+
+
+    #     # ==================================================
+    #     # FIX #2
+    #     # Match training duration exactly (1 second)
+    #     # ==================================================
+    #     if len(audio) > SAMPLE_RATE:
+    #         audio = audio[:SAMPLE_RATE]
+
+
+    #     if len(audio) < SAMPLE_RATE:
+    #         audio = np.pad(
+    #             audio,
+    #             (0, SAMPLE_RATE - len(audio)),
+    #             mode="constant"
+    #         )
+
+
+    #     audio = audio.astype(np.float32)
+
+
+    #     # ==================================================
+    #     # FIX #1
+    #     # STFT identical to training
+    #     # ==================================================
+    #     stft = tf.signal.stft(
+    #         audio,
+    #         frame_length=FRAME_LENGTH,
+    #         frame_step=FRAME_STEP,
+    #         fft_length=512
+    #     )
+
+
+    #     spectrogram = tf.abs(stft)
+
+
+    #     # ==================================================
+    #     # Mel matrix identical to training
+    #     # ==================================================
+    #     mel_matrix = tf.signal.linear_to_mel_weight_matrix(
+    #         num_mel_bins=MEL_BINS,
+    #         num_spectrogram_bins=spectrogram.shape[-1],
+    #         sample_rate=SAMPLE_RATE,
+    #         lower_edge_hertz=LOWER_FREQ,
+    #         upper_edge_hertz=UPPER_FREQ
+    #     )
+
+
+    #     mel_spectrogram = tf.matmul(
+    #         spectrogram,
+    #         mel_matrix
+    #     )
+
+
+    #     # ==================================================
+    #     # Log identical to training
+    #     # ==================================================
+    #     log_mel = tf.math.log(
+    #         mel_spectrogram + 1e-6
+    #     )
+
+
+    #     # ==================================================
+    #     # FIX #3
+    #     # Per-frame normalization identical to training
+    #     # ==================================================
+    #     # mean = tf.reduce_mean(
+    #     #     log_mel,
+    #     #     axis=-1,
+    #     #     keepdims=True
+    #     # )
+
+
+    #     # std = tf.math.reduce_std(
+    #     #     log_mel,
+    #     #     axis=-1,
+    #     #     keepdims=True
+    #     # )
+
+    #     # log_mel = (
+    #     #     log_mel - mean
+    #     # ) / (
+    #     #     std + 1e-6
+    #     # )
+
+    #     mean = tf.reduce_mean(log_mel)
+    #     std = tf.math.reduce_std(log_mel)
+    #     log_mel = (log_mel - mean) / (std + 1e-6)
+
+    #     features = log_mel.numpy().astype(np.float32)
+
+
+    #     logger.info(
+    #         f"Feature shape: {features.shape}"
+    #     )
+
+
+    #     logger.info(
+    #         f"Feature stats: "
+    #         f"min={features.min():.3f}, "
+    #         f"max={features.max():.3f}, "
+    #         f"mean={features.mean():.3f}, "
+    #         f"std={features.std():.3f}"
+    #     )
+
+
+    #     return features.reshape(
+    #         1,
+    #         MEL_FRAMES,
+    #         MEL_BINS,
+    #         1
+    #     )
