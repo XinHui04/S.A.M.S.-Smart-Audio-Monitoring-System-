@@ -261,6 +261,7 @@
   .toast.medium { border-left: 3px solid var(--amber);  }
   .toast.low    { border-left: 3px solid var(--teal);   }
   .toast.scream { border-left: 3px solid var(--red); }
+  .toast.error { border-left: 3px solid var(--red); }
   @keyframes slide-in { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
   .toast-header  { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
   .toast-title   { font-size: 13px; font-weight: 600; flex: 1; }
@@ -445,6 +446,68 @@ let lastEventCount    = 0;
 
 let currentPage = 'alerts';
 
+// ── Pre-load audio durations via HEAD requests (no full download) ─────────────
+// Uses Content-Length to estimate duration: WAV = (bytes - 44) / (16000 * 2)
+// Only fetches events that don't already have a duration cached.
+async function preloadAllAudioDurations() {
+  // Duration now comes from the API — this function is only a last-resort
+  // fallback for events where the DB has no duration stored yet.
+  const pending = allEvents.filter(e => e.audio_url && e.duration === null);
+  if (!pending.length) return;
+
+  // Use a dummy Audio element with preload=none — just read the src, 
+  // get metadata via onloadedmetadata, then immediately unload.
+  // Process max 5 at a time to avoid hammering the server.
+  const batch = pending.slice(0, 5);
+  const token = localStorage.getItem('sams_token') || '';
+  const sep   = token ? '?token=' + token : '';
+
+  await Promise.allSettled(batch.map(ev => new Promise((resolve) => {
+    const audio = new Audio();
+    const timeout = setTimeout(() => {
+      audio.src = '';
+      ev.duration = -1;   // give up after 5s
+      resolve();
+    }, 5000);
+
+    audio.onloadedmetadata = () => {
+      clearTimeout(timeout);
+      ev.duration = isFinite(audio.duration) ? audio.duration : -1;
+      audio.src = '';     // unload immediately — stops the download
+      resolve();
+    };
+
+    audio.onerror = () => {
+      clearTimeout(timeout);
+      ev.duration = -1;
+      audio.src = '';
+      resolve();
+    };
+
+    audio.preload = 'metadata';   // only fetch enough to get duration
+    audio.src = `${API}${ev.audio_url}${sep}`;
+  })));
+
+  renderScreamList();
+  const selected = allEvents.find(e => e.id === selectedEventId);
+  if (selected?.duration != null) renderScreamDetail(selected);
+}
+
+function updateDurationDisplay(ev) {
+    const timeEl = document.getElementById('audio-time-scream');
+    if (!timeEl) return;
+    
+    if (ev.duration && ev.duration > 0) {
+        const total = ev.duration;
+        timeEl.textContent = `0:00 / ${Math.floor(total/60)}:${String(Math.floor(total%60)).padStart(2,'0')}`;
+    } else if (ev.duration === -1) {
+        timeEl.textContent = '❌ Unavailable';
+        timeEl.style.color = 'var(--red)';
+    } else {
+        timeEl.textContent = '0:00';
+    }
+}
+
 // ── Clock ─────────────────────────────────────────────────────────────────────
 function updateClock() {
   document.getElementById('clock').textContent =
@@ -522,7 +585,10 @@ function handleIncomingAlert(msg) {
 function showToast(data, sevOrType) {
   const container = document.getElementById('toast-container');
   const toast = document.createElement('div');
-  toast.className = `toast ${sevOrType}`;
+  // Handle error type
+  const typeClass = sevOrType === 'error' ? 'error' : sevOrType;
+  toast.className = `toast ${typeClass}`;
+  // toast.className = `toast ${sevOrType}`;
   toast.innerHTML = `
     <div class="toast-header">
       <span class="sev-badge ${sevOrType}">${data.isScream ? '🔴 SCREAM' : (sevOrType || 'info').toUpperCase()}</span>
@@ -676,7 +742,7 @@ function renderAlertDetail(alert) {
     ${alert.audio_url ? `
     <div class="audio-section">
       <div class="audio-player">
-        <button class="audio-play-btn" onclick="toggleAudio('${API}${alert.audio_url}', this)" title="Play audio">
+        <button class="audio-play-btn" onclick="toggleAudio('${alert.audio_url}', this)" title="Play audio">
           <svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
             <path d="M11.596 8.697L4.604 12.5A.5.5 0 0 1 4 12V4a.5.5 0 0 1 .604-.5l6.992 3.803a.5.5 0 0 1 0 .894z"/>
           </svg>
@@ -732,26 +798,194 @@ async function resolveAlert(alertId) {
 
 async function toggleAudio(url, btn) {
   const timeEl = document.getElementById('audio-time-alert') || document.getElementById('audio-time-scream');
-  if (currentAudio && !currentAudio.paused) {
+
+  // ── Build full URL with JWT token for auth ────────────────────────────
+  // The <audio> element can't send Authorization headers, so we pass
+  // the token as a query param — the server accepts ?token= as a fallback.
+  const token = localStorage.getItem('sams_token') || '';
+  const separator = url.includes('?') ? '&' : '?';
+  const urlWithToken = token ? `${url}${separator}token=${token}` : url;
+  // Avoid double-prefixing — url is already a path like /api/events/.../audio
+  const fullUrl = urlWithToken.startsWith('http') 
+                ? urlWithToken 
+                : `${API}${urlWithToken}`;
+
+  // const fullUrl = url.startsWith('http') ? url : `${API}${url}`;
+
+  if (currentAudio && !currentAudio.paused && currentAudio.src === fullUrl) {
     currentAudio.pause();
     btn.innerHTML = `<svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M11.596 8.697L4.604 12.5A.5.5 0 0 1 4 12V4a.5.5 0 0 1 .604-.5l6.992 3.803a.5.5 0 0 1 0 .894z"/></svg>`;
     return;
   }
-  if (!currentAudio || currentAudio.src !== url) {
-    currentAudio = new Audio(url);
-    currentAudio.ontimeupdate = () => {
-      if (!timeEl) return;
-      const t = currentAudio.currentTime;
-      timeEl.textContent = `${Math.floor(t/60)}:${String(Math.floor(t%60)).padStart(2,'0')}`;
-    };
-    currentAudio.onended = () => {
-      btn.innerHTML = `<svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M11.596 8.697L4.604 12.5A.5.5 0 0 1 4 12V4a.5.5 0 0 1 .604-.5l6.992 3.803a.5.5 0 0 1 0 .894z"/></svg>`;
-      if (timeEl) timeEl.textContent = '0:00';
-    };
+
+  // ── If audio is paused, resume it ──────────────────────────────────────────
+  if (currentAudio && currentAudio.src === fullUrl && currentAudio.paused) {
+    try {
+      await currentAudio.play();
+      btn.innerHTML = `<svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M5.5 3.5A1.5 1.5 0 0 1 7 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5m5 0A1.5 1.5 0 0 1 12 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5"/></svg>`;
+      return;
+    } catch(e) {
+      console.error('Resume failed:', e);
+      // If resume fails, recreate the audio
+    }
   }
-  await currentAudio.play();
-  btn.innerHTML = `<svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M5.5 3.5A1.5 1.5 0 0 1 7 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5m5 0A1.5 1.5 0 0 1 12 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5"/></svg>`;
+
+  // ── If same audio and it's ended, replay it ──────────────────────────────
+  if (currentAudio && currentAudio.src === fullUrl && currentAudio.ended) {
+    try {
+      currentAudio.currentTime = 0;
+      await currentAudio.play();
+      btn.innerHTML = `<svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M5.5 3.5A1.5 1.5 0 0 1 7 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5m5 0A1.5 1.5 0 0 1 12 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5"/></svg>`;
+      return;
+    } catch(e) {
+      console.error('Replay failed:', e);
+      // Fall through to recreate audio
+    }
+  }
+
+  // ── Create new audio or reuse existing ────────────────────────────────────
+  // ── Create new Audio object ───────────────────────────────────────────
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio.src = '';
+    currentAudio = null;
+  }
+
+  currentAudio = new Audio(fullUrl);
+  currentAudio.preload = 'auto';   // buffer the full file, not just metadata
+
+  let errorShown = false;
+
+  // When metadata is loaded, show total duration
+  currentAudio.onloadedmetadata = () => {
+    if (!timeEl) return;
+    const total = currentAudio.duration;
+    if (isFinite(total)) {
+      timeEl.textContent = `0:00 / ${Math.floor(total/60)}:${String(Math.floor(total%60)).padStart(2,'0')}`;
+    }
+  };
+
+  currentAudio.ontimeupdate = () => {
+    if (!timeEl) return;
+    const t = currentAudio.currentTime;
+    const total = currentAudio.duration;
+    if (isFinite(total)) {
+      timeEl.textContent = `${Math.floor(t/60)}:${String(Math.floor(t%60)).padStart(2,'0')} / ${Math.floor(total/60)}:${String(Math.floor(total%60)).padStart(2,'0')}`;
+    }
+    // timeEl.textContent = `${Math.floor(t/60)}:${String(Math.floor(t%60)).padStart(2,'0')}`;
+  };
+
+  currentAudio.onended = () => {
+    btn.innerHTML = `<svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M11.596 8.697L4.604 12.5A.5.5 0 0 1 4 12V4a.5.5 0 0 1 .604-.5l6.992 3.803a.5.5 0 0 1 0 .894z"/></svg>`;
+    if (timeEl) {
+      const total = currentAudio.duration;
+      if (isFinite(total)) {
+        timeEl.textContent = `0:00 / ${Math.floor(total/60)}:${String(Math.floor(total%60)).padStart(2,'0')}`;
+      } else {
+        timeEl.textContent = '0:00';
+      }
+    // if (timeEl) timeEl.textContent = '0:00';
+    }
+  };
+
+    // ── Handle errors ──────────────────────────────────────────────────────
+  currentAudio.onerror = () => {
+    if (currentAudio.error?.code === MediaError.MEDIA_ERR_ABORTED) return;
+    if (errorShown) return;
+    errorShown = true;
+
+    btn.innerHTML = `<svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M11.596 8.697L4.604 12.5A.5.5 0 0 1 4 12V4a.5.5 0 0 1 .604-.5l6.992 3.803a.5.5 0 0 1 0 .894z"/></svg>`;
+    console.error('Audio error:', currentAudio.error);
+    
+    const codes = {
+      [MediaError.MEDIA_ERR_NETWORK]:       'Network error — audio could not be loaded.',
+      [MediaError.MEDIA_ERR_DECODE]:        'Audio decoding failed — file may be corrupted.',
+      [MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED]: 'Audio format not supported or file not found.',
+    };
+    const msg = currentAudio.error 
+              ? (codes[currentAudio.error.code] || `Playback error (${currentAudio.error.code})`)
+              : 'Audio playback failed.';
+
+    // let errorMsg = 'Audio playback failed.';
+    // if (currentAudio.error) {
+    //   switch(currentAudio.error.code) {
+    //     case MediaError.MEDIA_ERR_ABORTED:
+    //       errorMsg = 'Playback was aborted.';
+    //       break;
+    //     case MediaError.MEDIA_ERR_NETWORK:
+    //       errorMsg = 'Network error - audio could not be loaded.';
+    //       break;
+    //     case MediaError.MEDIA_ERR_DECODE:
+    //       errorMsg = 'Audio decoding failed - file may be corrupted.';
+    //       break;
+    //     case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
+    //       errorMsg = 'Audio format not supported or file not found.';
+    //       break;
+    //     default:
+    //       errorMsg = `Unknown error (${currentAudio.error.code})`;
+    //   }
+    // }
+    
+    if (timeEl) {
+      timeEl.textContent = '❌ Error';
+      timeEl.style.color = 'var(--red)';
+      setTimeout(() => {
+        timeEl.style.color = '';
+        timeEl.textContent = '0:00';
+      }, 3000);
+    }
+    
+    // Show toast error
+    showToast({
+      location_name: 'Audio Error',
+      transcript: errorMsg,
+      isScream: false
+    }, 'error');
+  };
+  
+  try {
+    await currentAudio.play();
+    btn.innerHTML = `<svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M5.5 3.5A1.5 1.5 0 0 1 7 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5m5 0A1.5 1.5 0 0 1 12 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5"/></svg>`;
+    
+    // // Also show duration after play starts (in case onloadedmetadata already fired)
+    // if (timeEl) {
+    //   const total = currentAudio.duration;
+    //   if (isFinite(total) && timeEl.textContent === '0:00') {
+    //     timeEl.textContent = `0:00 / ${Math.floor(total/60)}:${String(Math.floor(total%60)).padStart(2,'0')}`;
+    //   }
+    // }
+  } catch(e) {
+    console.error('Audio playback failed:', e);
+    btn.innerHTML = `<svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M11.596 8.697L4.604 12.5A.5.5 0 0 1 4 12V4a.5.5 0 0 1 .604-.5l6.992 3.803a.5.5 0 0 1 0 .894z"/></svg>`;
+    // alert('Audio playback failed. The audio file may not be available.');
+    if (!errorShown) {
+      errorShown = true;
+      if (timeEl) {
+        timeEl.textContent = '❌ Cannot play';
+        timeEl.style.color = 'var(--red)';
+        setTimeout(() => { timeEl.style.color = ''; timeEl.textContent = '0:00'; }, 3000);
+      }
+
+    // if (timeEl) {
+    //   timeEl.textContent = '❌ Cannot play';
+    //   timeEl.style.color = 'var(--red)';
+    //   setTimeout(() => {
+    //     timeEl.style.color = '';
+    //     timeEl.textContent = '0:00';
+    //   }, 3000);
+    // }
+    
+      showToast({
+        location_name: 'Audio Error',
+        transcript: 'Cannot play audio. File may be missing or corrupted.',
+        isScream: false
+      }, 'error');
+    }
+  }
+  // await currentAudio.play();
+  // btn.innerHTML = `<svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M5.5 3.5A1.5 1.5 0 0 1 7 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5m5 0A1.5 1.5 0 0 1 12 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5"/></svg>`;
 }
+
 
 // ══════════════════════════════════════════════════════════════════════════════
 // SCREAM EVENTS PAGE
@@ -782,15 +1016,23 @@ async function loadScreamEvents(silent = false) {
         pitch:      ev.pitch      || 0,
         confidence: ev.confidence_score || 0,
         audio_url:  ev.audio_url  || null,
-        isScream:   (ev.confidence_score || 0) >= 0.3,
-        severity:   (ev.confidence_score||0) > 0.7 ? 'high'
-                  : (ev.confidence_score||0) > 0.4 ? 'medium' : 'low',
+        isScream:   ev.is_scream !== undefined ? ev.is_scream : false,
+        // isScream:   ev.is_scream !== undefined ? ev.is_scream : (ev.confidence_score || 0) >= 0.7,
+        // isScream:   (ev.confidence_score || 0) >= 0.3,
+        severity:   (ev.confidence_score||0) > 0.9 ? 'high'
+                  : (ev.confidence_score||0) > 0.8 ? 'medium' : 'low',
+        duration: ev.duration || null,
       }));
       allEvents.sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
 
       renderScreamList();
       updateScreamStats();
       updateScreamBadge();
+
+      // Pre-load all audio durations in the background
+      // setTimeout(() => preloadAllAudioDurations(), 100);
+      const stillMissing = allEvents.filter(e => e.audio_url && e.duration === null);
+      if (stillMissing.length > 0) setTimeout(() => preloadAllAudioDurations(), 500);
 
       // Toast for brand-new scream events
       if (!silent && allEvents.length > lastEventCount && lastEventCount > 0) {
@@ -844,6 +1086,9 @@ function renderScreamList() {
         <span>🔊 ${Number(e.intensity).toFixed(1)} dB</span>
         <span>🎵 ${Number(e.pitch).toFixed(0)} Hz</span>
         <span>📊 ${(e.confidence*100).toFixed(0)}%</span>
+        ${e.duration > 0  ? `<span>⏱ ${e.duration.toFixed(1)}s</span>`
+        : e.duration === null && e.audio_url ? `<span style="color:var(--text-muted)">⏱ …</span>`
+        : ''}
       </div>
     </div>
   `).join('');
@@ -862,6 +1107,17 @@ function renderScreamDetail(ev) {
   const sevClass  = isScream ? ev.severity : 'low';
   const fillClass = isScream ? ev.severity : 'low';
 
+  // Show duration if pre-loaded
+  let durationDisplay = '0:00';
+  if (ev.duration > 0) {
+    const total = ev.duration;
+    durationDisplay = `0:00 / ${Math.floor(total/60)}:${String(Math.floor(total%60)).padStart(2,'0')}`;
+  } else if (ev.duration === null && ev.audio_url) {
+    durationDisplay = 'Loading…';   // still fetching
+  } else if (ev.duration === -1) {
+    durationDisplay = '—'; 
+  }
+
   document.getElementById('scream-detail-panel').innerHTML = `
     <div class="detail-header">
       <div>
@@ -874,6 +1130,7 @@ function renderScreamDetail(ev) {
           </span>
           <span class="meta-pill">${formatDateTime(ev.timestamp)}</span>
           <span class="meta-pill">Device: ${escHtml(ev.device_id)}</span>
+          ${ev.duration && ev.duration > 0 ? `<span class="meta-pill">⏱ ${ev.duration.toFixed(1)}s</span>` : ''}
         </div>
       </div>
     </div>
@@ -928,7 +1185,7 @@ function renderScreamDetail(ev) {
     ${ev.audio_url ? `
     <div class="audio-section">
       <div class="audio-player">
-        <button class="audio-play-btn" onclick="toggleAudio('${API}${ev.audio_url}', this)" title="Play audio">
+        <button class="audio-play-btn" onclick="toggleAudio('${ev.audio_url}', this)" title="Play audio">
           <svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
             <path d="M11.596 8.697L4.604 12.5A.5.5 0 0 1 4 12V4a.5.5 0 0 1 .604-.5l6.992 3.803a.5.5 0 0 1 0 .894z"/>
           </svg>
@@ -936,7 +1193,7 @@ function renderScreamDetail(ev) {
         <div class="audio-waveform">
           ${Array.from({length:40},(_,i)=>`<div class="wave-bar" style="height:${8+Math.sin(i*0.7)*8+Math.random()*8}px"></div>`).join('')}
         </div>
-        <div class="audio-duration" id="audio-time-scream">0:00</div>
+        <div class="audio-duration" id="audio-time-scream">${durationDisplay}</div>
       </div>
     </div>
     ` : '<div style="padding:12px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-muted);font-size:12px;margin-bottom:16px;">No audio clip available for this event</div>'}

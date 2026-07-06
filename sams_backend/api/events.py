@@ -372,25 +372,95 @@ async def stream_audio(
 
     file_path = clip.file_path
 
-    # ── Old local records (Windows backslash path) — serve from disk ──────
-    if "\\" in file_path or (not file_path.startswith("supabase://") and not file_path.startswith("incidents/")):
-        from fastapi.responses import FileResponse
-        if not os.path.exists(file_path):
-            raise HTTPException(404, "Local audio file no longer exists")
-        return FileResponse(file_path, media_type="audio/wav", filename=f"{event_id}.wav")
-
     # ── Resolve to a plain object key ─────────────────────────────────────
     # Handles three stored formats:
     #   "supabase://audio-clips/incidents/<uuid>.wav"  → "incidents/<uuid>.wav"
     #   "supabase://audio-clips/<uuid>.wav"            → "<uuid>.wav"
     #   "<uuid>.wav"  or  "incidents/<uuid>.wav"       → used as-is
+    # If it's already a full supabase:// URL, pass it directly
+    audio_bytes = None
+
     if file_path.startswith("supabase://"):
-        object_key = file_path.split("/", 3)[-1]   # strip "supabase://audio-clips/"
-    else:
-        object_key = file_path                      # already a plain key
+        audio_bytes = audio_storage.get_bytes(file_path)
+        # if audio_bytes:
+        #     return StreamingResponse(
+        #         io.BytesIO(audio_bytes),
+        #         media_type="audio/wav",
+        #         headers={"Content-Disposition": f"attachment; filename={event_id}.wav"}
+        #     )
+        # raise HTTPException(404, "Audio file not found in Supabase")
+    
+    if not audio_bytes and file_path.endswith(".wav"):
+        # Format: "incidents/<uuid>.wav" or plain "<uuid>.wav"
+        audio_bytes = audio_storage.get_bytes(f"supabase://audio-clips/{file_path}")
+
+    if not audio_bytes and file_path.endswith(".wav"):
+        # Last resort: pass as-is to get_bytes (handles local files too)
+        audio_bytes = audio_storage.get_bytes(file_path)
+
+    if not audio_bytes:
+        logger.error(f"Audio not found for event {event_id}, file_path={file_path}")
+        raise HTTPException(404, "Audio file not found")
+
+    # ── Stream with correct headers for browser audio playback ────────────
+    # Content-Disposition: inline  → browser plays it, not downloads it
+    # Accept-Ranges: bytes         → browser can seek and resume
+    # Content-Length               → browser shows correct duration bar
+    audio_length = len(audio_bytes)
+
+    return StreamingResponse(
+        io.BytesIO(audio_bytes),
+        media_type="audio/wav",
+        headers={
+            "Content-Disposition": f"inline; filename={event_id}.wav",
+            "Accept-Ranges":       "bytes",
+            "Content-Length":      str(audio_length),
+            "Cache-Control":       "no-cache",
+        },
+    )
+
+
+    # # If it's just a filename (e.g., "abc123.wav") or has incidents/ prefix
+    # if file_path.endswith(".wav"):
+    #     # Try with supabase:// prefix
+    #     audio_bytes = audio_storage.get_bytes(f"supabase://audio-clips/{file_path}")
+    #     if audio_bytes:
+    #         return StreamingResponse(
+    #             io.BytesIO(audio_bytes),
+    #             media_type="audio/wav",
+    #             headers={"Content-Disposition": f"attachment; filename={event_id}.wav"}
+    #         )
+    #     # If that fails, try without any prefix (plain filename)
+    #     audio_bytes = audio_storage.get_bytes(file_path)
+    #     if audio_bytes:
+    #         return StreamingResponse(
+    #             io.BytesIO(audio_bytes),
+    #             media_type="audio/wav",
+    #             headers={"Content-Disposition": f"attachment; filename={event_id}.wav"}
+    #         )
+    #     raise HTTPException(404, "Audio file not found in storage")
+
+    # if file_path.startswith("supabase://"):
+    #     object_key = file_path.split("/", 3)[-1]   # strip "supabase://audio-clips/"
+
+    # elif file_path.endswith(".wav") and "/" not in file_path:
+    #     object_key = file_path
+
+    # # ── Old local records (Windows backslash path) — serve from disk ──────
+    # elif "\\" in file_path or (not file_path.startswith("supabase://") and not file_path.startswith("incidents/")):
+    #     from fastapi.responses import FileResponse
+    #     if not os.path.exists(file_path):
+    #         raise HTTPException(404, "Local audio file no longer exists")
+    #     return FileResponse(file_path, media_type="audio/wav", filename=f"{event_id}.wav")
+
+    # # else:
+    # #     object_key = file_path                      # already a plain key
+    # else:
+    #     raise HTTPException(404, f"Unrecognized file path format: {file_path}")
+    
 
     try:
-        audio_bytes = audio_storage.get_bytes(f"supabase://audio-clips/{object_key}")
+        audio_bytes = audio_storage.get_bytes(f"supabase://audio-clips/{file_path}")
         if not audio_bytes:
             raise HTTPException(404, "Audio file not found in Supabase")
         return StreamingResponse(
@@ -434,7 +504,21 @@ async def get_all_events(
                 location = db.query(Location).filter(Location.location_id == device.location_id).first()
                 if location:
                     location_name = location.location_name
-            
+
+            confidence = event.confidence_score or 0
+            is_scream = confidence >= 0.70  # Match backend threshold
+
+            audio_url = None
+            if event.audio_clip:
+                # If file_path is stored, construct the URL
+                file_path = event.audio_clip.file_path
+                if file_path:
+                    # If it's a Supabase path, use the storage URL
+                    if file_path.startswith('supabase://'):
+                        audio_url = f"/api/events/{event.event_id}/audio"
+                    else:
+                        audio_url = f"/api/events/{event.event_id}/audio"
+
             result.append({
                 "id": event.event_id,
                 "device_id": event.device_id or "Unknown",
@@ -444,6 +528,9 @@ async def get_all_events(
                 "intensity": event.intensity or 0,
                 "pitch": event.pitch or 0,
                 "confidence_score": event.confidence_score or 0,
+                "is_scream": is_scream,  
+                "audio_url": audio_url,
+                "duration": event.audio_clip.duration if event.audio_clip else None,  
             })
         
         return {"events": result}

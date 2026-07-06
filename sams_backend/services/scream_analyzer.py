@@ -107,10 +107,26 @@ class ScreamAnalyzer:
     def _run_inference_on_window(self, window: np.ndarray) -> float:
         """Run TFLite inference on a single 1-second window, returns confidence"""
         features = self._extract_features(window)
+
+        # Reallocate tensors to clear any stale state from previous window
+        self.model.allocate_tensors()
+        # Re-fetch input/output details after re-allocation
+        self.input_details = self.model.get_input_details()
+        self.output_details = self.model.get_output_details()
+
         self.model.set_tensor(self.input_details[0]['index'], features)
         self.model.invoke()
         output = self.model.get_tensor(self.output_details[0]['index'])
-        return float(output.flatten()[0])
+
+        # Handle quantized output
+        out_detail = self.output_details[0]
+        if out_detail["dtype"] != np.float32:
+            scale, zero_point = out_detail["quantization"]
+            confidence = (float(output.flatten()[0]) - zero_point) * scale
+        else:
+            confidence = float(output.flatten()[0])
+
+        return confidence
 
 
     def _extract_audio_array(self, audio_bytes: bytes) -> np.ndarray:
@@ -232,7 +248,13 @@ class ScreamAnalyzer:
 
             for start in range(0, total_samples - WINDOW_SAMPLES + 1, STEP_SAMPLES):
                 window = audio[start : start + WINDOW_SAMPLES]
-                conf = self._run_inference_on_window(window)
+                try:
+                    conf = self._run_inference_on_window(window)
+                except Exception as e:
+                    logger.warning(f"  Window {window_num} ({start/SAMPLE_RATE:.1f}s) FAILED: {e} — skipping")
+                    window_num += 1
+                    continue
+                # conf = self._run_inference_on_window(window)
                 window_results.append((start / SAMPLE_RATE, conf))
                 logger.info(f"  Window {window_num} "
                             f"({start/SAMPLE_RATE:.1f}s–{(start+WINDOW_SAMPLES)/SAMPLE_RATE:.1f}s): "
@@ -254,20 +276,120 @@ class ScreamAnalyzer:
                 window_results.append((0.0, conf))
 
             # ── Aggregate: any window ≥ threshold = scream detected ──────────
-            THRESHOLD = 0.30
-            max_confidence = max(conf for _, conf in window_results)
-            best_time      = max(window_results, key=lambda x: x[1])[0]
-            is_scream      = bool(max_confidence >= THRESHOLD)
+            THRESHOLD = 0.70
+            MIN_CONSECUTIVE = 3
 
-            logger.info(f"Sliding window summary: "
-                        f"{window_num} windows, "
-                        f"max_confidence={max_confidence:.3f} at t={best_time:.1f}s, "
+            # Check for consecutive windows above threshold
+            confidences = [conf for _, conf in window_results]
+
+            max_confidence = float(np.max(confidences))
+            average_confidence = float(np.mean(confidences))
+            median_confidence = float(np.median(confidences))
+            # peak_confidence = float(np.max(confidences))
+            # high_windows = sum(conf >= THRESHOLD for conf in confidences)
+            # confidence_std = float(np.std(confidences))
+            confidence_variation = float(np.std(confidences))
+            
+            best_time = float(max(window_results, key=lambda x: x[1])[0])
+
+            # max_confidence = max(conf for _, conf in window_results)
+            # best_time      = max(window_results, key=lambda x: x[1])[0]
+            # is_scream      = bool(max_confidence >= THRESHOLD)
+
+            consecutive_count = 0
+            max_consecutive = 0
+            for conf in confidences:
+                if conf >= THRESHOLD:
+                    consecutive_count += 1
+                    max_consecutive = max(max_consecutive, consecutive_count)
+                else:
+                    consecutive_count = 0
+
+            is_scream = max_consecutive >= MIN_CONSECUTIVE
+
+            if is_scream:
+                display_confidence = max_confidence   # strong event → show peak
+                confidence_type = "peak"
+            else:
+                display_confidence = average_confidence  # weak/no event → show stable metric
+                confidence_type = "average"
+
+            high_windows = sum(1 for conf in confidences if conf >= THRESHOLD)
+
+            logger.info(f"Sliding window summary: {len(window_results)} windows, "
+                        f"max_confidence={max_confidence:.3f}, "
+                        f"avg_confidence={average_confidence:.3f}, "
+                        f"max_consecutive={max_consecutive}, "
                         f"is_scream={is_scream}")
 
+            # is_scream = bool(max_consecutive >= MIN_CONSECUTIVE)
+
+            # # logger.info(f"Sliding window summary: "
+            # #             f"{window_num} windows, "
+            # #             f"max_confidence={max_confidence:.3f} at t={best_time:.1f}s, "
+            # #             f"is_scream={is_scream}")
+
+            # logger.info(f"Sliding window summary: {window_num} windows, "
+            #             f"max_confidence={max_confidence:.3f} at t={best_time:.1f}s, "
+            #             f"max_consecutive_above_threshold={max_consecutive}, "
+            #             f"is_scream={is_scream}")
+
+            # # return {
+            # #     'confidence': max_confidence,
+            # #     'is_scream':  is_scream,
+            # #     'error':      None
+            # # }
+
+            # average_confidence = float(np.mean(confidences))
+
+            # return {
+            #     "confidence": average_confidence,          # used for dashboard
+            #     "peak_confidence": max_confidence,         # strongest window
+            #     "average_confidence": average_confidence,
+            #     "window_confidences": confidences,
+            #     "window_times": [t for t, _ in window_results],
+            #     "best_time": best_time,
+            #     "max_consecutive": max_consecutive,
+            #     "is_scream": is_scream,
+            #     "error": None,
+            # }
+
+            # return {
+            #     "confidence": display_confidence,
+            #     "max_confidence": max_confidence,
+            #     "average_confidence": average_confidence,
+            #     "median_confidence": median_confidence,
+            #     "window_confidences": confidences,
+            #     "window_times": [t for t, _ in window_results],
+            #     "high_windows": high_windows,
+            #     "max_consecutive": max_consecutive,
+            #     "confidence_std": confidence_variation,
+            #     "best_time": best_time,
+            #     "is_scream": is_scream,
+            #     "error": None
+            # }
+
             return {
-                'confidence': max_confidence,
-                'is_scream':  is_scream,
-                'error':      None
+                # ── core decision ─────────────────────────
+                "is_scream": is_scream,
+                "confidence": display_confidence,
+                "confidence_type": confidence_type,
+
+                # ── full analytics ────────────────────────
+                "peak_confidence": max_confidence,
+                "average_confidence": average_confidence,
+                "median_confidence": median_confidence,
+                "confidence_std": confidence_variation,
+
+                "window_confidences": confidences,
+                "window_times": [t for t, _ in window_results],
+
+                "max_consecutive": max_consecutive,
+                "best_time": best_time,
+
+                "high_windows": high_windows,
+
+                "error": None
             }
 
         except Exception as e:

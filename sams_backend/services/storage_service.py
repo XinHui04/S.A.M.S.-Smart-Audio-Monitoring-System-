@@ -118,12 +118,56 @@ class AudioStorageService:
             if self.is_remote(file_ref):
                 bucket, obj = self._parse_ref(file_ref)
                 client = self._get_client()
-                return client.storage.from_(bucket).download(obj)
-            if not os.path.exists(file_ref):
+
+                # Try multiple path variations
+                paths_to_try = [obj]
+                # If it has incidents/ prefix, try without
+                if obj.startswith("incidents/"):
+                    paths_to_try.append(obj.replace("incidents/", ""))
+                # If it doesn't have incidents/, try with it
+                elif not obj.startswith("incidents/"):
+                    paths_to_try.append(f"incidents/{obj}")
+                
+                for path in paths_to_try:
+                    try:
+                        logger.debug(f"Trying to download: {path}")
+                        return client.storage.from_(bucket).download(path)
+                    except Exception as e:
+                        logger.debug(f"Path {path} failed: {e}")
+                        continue
+                
+                logger.error(f"All paths failed for: {obj}")
+                return None
+
+            # ── If it's a plain filename (e.g., "abc123.wav") ──────────────────────
+            elif file_ref.endswith('.wav') and '/' not in file_ref and not os.path.exists(file_ref):
+                # Try to fetch from Supabase using the filename
+                try:
+                    client = self._get_client()
+                    # Try root bucket first
+                    try:
+                        return client.storage.from_(self.bucket_name).download(file_ref)
+                    except:
+                        # Try incidents folder
+                        return client.storage.from_(self.bucket_name).download(f"incidents/{file_ref}")
+                except Exception as e:
+                    logger.warning(f"Could not fetch from Supabase: {e}")
+
+                # return client.storage.from_(bucket).download(obj)
+
+            # ── If it's a local file ──────────────────────────────────────────────
+            elif os.path.exists(file_ref):
+                with open(file_ref, "rb") as f:
+                    return f.read()
+            else:
                 logger.warning(f"Audio not found: {file_ref}")
                 return None
-            with open(file_ref, "rb") as f:
-                return f.read()
+
+            # if not os.path.exists(file_ref):
+            #     logger.warning(f"Audio not found: {file_ref}")
+            #     return None
+            # with open(file_ref, "rb") as f:
+            #     return f.read() 
         except Exception as e:
             logger.error(f"Audio fetch failed for {file_ref}: {e}")
             return None

@@ -56,7 +56,7 @@ bool ledwifi_state = false;
 // Globals
 // ════════════════════════════════════════════════════════════════════════════
 unsigned long lastTriggerTime = 0;
-const unsigned long triggerCooldownMs = 15000;  // for 8s clips
+const unsigned long triggerCooldownMs = 40;  // for 8s clips
 bool isLedAlertActive = false;
 
 // Small stack buffers only — no large heap allocation needed
@@ -277,6 +277,7 @@ bool streamRecordToSupabase(const char* filename, int soundLevel,
     client.println(totalWavBytes);
     client.println("x-upsert: true");       // prevents hang on duplicate filename
     client.println("Connection: close");
+    client.println("Accept: application/json");
     client.println();                       // end of headers
 
     // ── Send WAV header first ─────────────────────────────────────────────
@@ -334,6 +335,7 @@ bool streamRecordToSupabase(const char* filename, int soundLevel,
 
     while (client.connected() && millis() < deadline) {
         if (client.available()) {
+            delay(100);
             String line = client.readStringUntil('\n');
             line.trim();
 
@@ -382,7 +384,8 @@ bool notifyBackend(const char* supabasePath, int soundLevel,
         return false;
     }
 
-    client.setTimeout(30);
+    // client.setTimeout(30000);
+    client.setTimeout(60000);
 
     String bnd  = BOUNDARY;
     String body = "";
@@ -417,9 +420,10 @@ bool notifyBackend(const char* supabasePath, int soundLevel,
     client.println("Connection: close");
     client.println();
     client.print(body);
+    client.flush();
 
     // ── Read full response ───────────────────────────────────────────────
-    unsigned long deadline = millis() + 15000;
+    unsigned long deadline = millis() + 60000;
     String response = "";
     bool headersEnded = false;
 
@@ -428,15 +432,20 @@ bool notifyBackend(const char* supabasePath, int soundLevel,
             String line = client.readStringUntil('\n');
             
             // Check if we've reached the end of headers
-            if (line == "\r" || line == "\n" || line == "\r\n" || line.length() <= 1) {
+            // if (line == "\r" || line == "\n" || line == "\r\n" || line.length() <= 1) {
+            //     headersEnded = true;
+            //     continue;
+            // }
+
+            if (line == "\r" || line == "" || line == "\n") {
                 headersEnded = true;
                 continue;
             }
-            
-            // If headers ended, accumulate the body
+
+            // If headers ended, this is the body
             if (headersEnded) {
-                response += line;
-                // Continue reading the rest of the body
+                // Read the rest of the response
+                response = line;
                 while (client.available()) {
                     response += client.readString();
                 }
@@ -449,29 +458,40 @@ bool notifyBackend(const char* supabasePath, int soundLevel,
     // Trim response
     response.trim();
     
+    // Find where JSON starts (after HTTP headers)
+    int jsonStart = response.indexOf('{');
+    int jsonEnd   = response.lastIndexOf('}');
+
+    if (jsonStart >= 0 && jsonEnd >= 0) {
+        response = response.substring(jsonStart, jsonEnd + 1);
+    }
+
     Serial.print("[Backend] Response: ");
-    Serial.println(response.substring(0, 200)); // Print first 200 chars
+    Serial.println(response);
+
+    // Serial.print("[Backend] Response: ");
+    // Serial.println(response.substring(0, 200)); // Print first 200 chars
 
     // ── Parse JSON response ──────────────────────────────────────────────
     if (response.length() == 0) {
         Serial.println(F("[Backend] Empty response"));
-        return false;
+        Serial.println(F("[Backend] Check dashboard for results later"));
+        return true;
     }
 
-    // Find where JSON starts (after HTTP headers)
-    int jsonStart = response.indexOf('{');
     if (jsonStart < 0) {
         Serial.println(F("[Backend] No JSON found in response"));
         return false;
     }
     
-    String jsonStr = response.substring(jsonStart);
-    Serial.print("[Backend] JSON: ");
-    Serial.println(jsonStr);
+    // String jsonStr = response.substring(jsonStart);
+    // Serial.print("[Backend] JSON: ");
+    // Serial.println(jsonStr);
 
     DynamicJsonDocument doc(512);
-    DeserializationError error = deserializeJson(doc, jsonStr);
-    
+    // DeserializationError error = deserializeJson(doc, jsonStr);
+    DeserializationError error = deserializeJson(doc, response);
+
     if (error) {
         Serial.print(F("[Backend] JSON parse: "));
         Serial.println(error.c_str());
