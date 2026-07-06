@@ -21,7 +21,8 @@ from config.settings import get_settings
 from api.events    import router as events_router
 from api.alerts    import router as alerts_router
 from api.analytics import router as analytics_router
-from api.dependencies import get_ws_manager, get_mqtt
+from api.auth      import router as auth_router
+from api.dependencies import get_ws_manager, get_mqtt, resolve_token_user, _SessionFactory
 
 logging.basicConfig(
     level   = logging.INFO,
@@ -63,6 +64,7 @@ app.add_middleware(
 app.include_router(events_router)
 app.include_router(alerts_router)
 app.include_router(analytics_router)
+app.include_router(auth_router)
 
 
 # ── MODULE 4: WebSocket endpoint for dashboard real-time feed ─────────────────
@@ -71,7 +73,25 @@ async def dashboard_ws(websocket: WebSocket):
     """
     Dashboard browser connects here to receive live alerts instantly.
     No polling needed — alerts are pushed the moment they fire.
+
+    Auth (FR23): the browser passes its JWT as ?token=<jwt> (WebSocket clients
+    can't set Authorization headers). Invalid/missing token → closed with 4401
+    before the handshake is accepted. If JWT_SECRET_KEY is unconfigured the
+    connection is allowed (demo mode) with a warning.
     """
+    if settings.jwt_secret_key:
+        token = websocket.query_params.get("token")
+        db = _SessionFactory()
+        try:
+            user = resolve_token_user(token, db)
+        finally:
+            db.close()
+        if user is None:
+            await websocket.close(code=4401)   # reject before accepting
+            return
+    else:
+        logger.warning("/ws/dashboard: JWT_SECRET_KEY not set — accepting unauthenticated connection (demo mode)")
+
     mgr = get_ws_manager()
     await mgr.connect(websocket)
     try:

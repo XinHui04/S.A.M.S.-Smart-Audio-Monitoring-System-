@@ -1,10 +1,12 @@
 # S.A.M.S. — Smart Audio Monitoring System
 
 Privacy-aware bullying detection for school zones where cameras can't go.
-An edge device sends a short audio clip to the cloud backend, which transcribes
-it, runs an NLP threat classifier, and — if the threat score crosses the
-threshold — raises an alert that is pushed live to a **central web dashboard**
-(disciplinary staff) and a **teacher phone app** (PWA).
+An edge device uploads a short audio clip to Supabase Storage and notifies the
+cloud backend, which runs scream detection, transcribes the speech (Groq
+Whisper), runs an NLP threat classifier, and — if a scream is detected **or**
+the threat score crosses the threshold — raises an alert that is pushed live to
+a **central web dashboard** (disciplinary staff) and a **teacher phone app**
+(PWA). All staff-facing APIs are protected by JWT login (FR23).
 
 **Author:** Lim Xin Hui · BMCS3403 Project I · TARUMT 2025/26
 **Scope (this repo):** Speech Detection & Audio Capture · Cloud Processing & AI Analysis · Reporting & Analytics · Main Computer Monitoring System
@@ -19,8 +21,8 @@ sams_final/
 │   ├── main.py                  App entry point + WebSocket + /m PWA mount
 │   ├── requirements.txt
 │   ├── .env.example             Copy to .env and configure
-│   ├── simulate_edge.py         Stand-in for the ESP32 device (testing)
-│   ├── api/                     events.py · alerts.py · analytics.py · dependencies.py
+│   ├── simulate_edge.py         Stand-in for the ESP32 device (OUTDATED — see §11)
+│   ├── api/                     auth.py (JWT login) · events.py · alerts.py · analytics.py · dependencies.py
 │   ├── services/                stt · nlp · mqtt · audio_capture · processing_pipeline · websocket_manager · storage
 │   ├── models/                  database.py (ORM/ERD) · schemas.py (Pydantic)
 │   ├── utils/                   auth.py (bcrypt) · seed_db.py (demo data)
@@ -38,14 +40,18 @@ sams_final/
 The three pieces talk over one backend:
 
 ```
- Edge device (ESP32-C3)          sams_backend  (FastAPI, port 8000)
-   scream + audio  ──HTTP──►  POST /api/events/audio
-                                  │  VAD → Whisper STT → NLP threat score
-                                  │  store to SQLite
-                                  └─ if score ≥ 0.75 → Alert
+ Edge device (ESP32-C3)
+   1. uploads WAV ──────────►  Supabase Storage (audio-clips bucket)
+   2. notifies    ──HTTP───►  POST /api/events/audio  (supabase_file_path)
+                                  │  download clip → scream detection (TFLite)
+                                  │  → Whisper STT → NLP threat score
+                                  │  store Event/AudioClip/Transcript/Analysis
+                                  └─ if scream OR score ≥ 0.75 → Alert
                                         ├─ WebSocket /ws/dashboard ─► Central dashboard (PC)
-                                        ├─ static /m/             ─► Teacher PWA (phone)
+                                        ├─ static /m/              ─► Teacher PWA (phone)
                                         └─ MQTT sams/alerts        ─► other subscribers
+
+ Staff (dashboard / PWA) ──►  POST /api/auth/login → JWT → all /api reads + WS
 ```
 
 ---
@@ -82,11 +88,18 @@ python -m venv .venv
 copy .env.example .env
 ```
 
-Open `.env` and set your Groq key (everything else has working defaults):
+Open `.env` and set your Groq key and a JWT secret (everything else has
+working defaults):
 
 ```
 GROQ_API_KEY=gsk_your_key_here
+JWT_SECRET_KEY=<64 hex chars>     # generate: python -c "import secrets; print(secrets.token_hex(32))"
 ```
+
+Optional hardening: set `DEVICE_API_KEY=<random string>` to require an
+`X-API-Key` header on the ESP32 ingestion endpoints. While it is empty they
+stay open (with a startup warning), so the edge device keeps working before
+its firmware sends the header.
 
 Leave `MQTT_ENABLED=false` unless you've set up Mosquitto (see §6).
 
@@ -131,9 +144,12 @@ The central monitoring computer is a single web page.
 start sams_dashboard\index.html
 ```
 
-A green **"Live"** dot (top-right) means the WebSocket is connected. It shows the
-live alert feed, incident detail (threat score, transcript, acoustic dB/Hz/edge
-confidence, audio playback), analytics, and the resolve flow.
+Sign in with one of the seeded accounts (§3.3), e.g. `admin@school.edu.my` /
+`Admin@1234`. A green **"Live"** dot (top-right) means the WebSocket is
+connected. It shows the live alert feed, incident detail (threat score,
+transcript, acoustic dB/Hz/edge confidence, audio playback), analytics, and the
+resolve flow — resolving an alert records **who** resolved it. Use the user
+chip in the header to sign out.
 
 > The dashboard talks to `http://localhost:8000`, so keep the backend running.
 
@@ -179,8 +195,9 @@ On the phone (same Wi-Fi), open Chrome and go to — using **your** IP from §5.
 http://192.168.100.18:8000/m/
 ```
 
-Sign in (any name → pick a role → **Enter**) and the live alert feed appears.
-Fire a test incident (§7) and the phone will **buzz, beep, and show the alert**.
+Sign in with a seeded account (e.g. `siti@school.edu.my` / `Staff@1234`) and
+the live alert feed appears. Fire a test incident (§7) and the phone will
+**buzz, beep, and show the alert**.
 
 ### 5.5 (Optional) Install it as a real app
 
@@ -213,23 +230,32 @@ subscribers. Install Mosquitto, then set `MQTT_ENABLED=true` in `.env`.
 
 ## 7. Test the whole pipeline (no hardware needed)
 
-With the backend running, simulate the edge device from `sams_backend`:
+The ingestion endpoint mirrors the real ESP32 flow: the clip must already be
+in the Supabase **`audio-clips`** bucket; the endpoint receives only the file
+path and downloads it from there.
 
-```powershell
-.\.venv\Scripts\python.exe simulate_edge.py --clip scream_clip.wav --device esp32-003 --location loc-003 --intensity 115 --pitch 2400 --confidence 0.97
-```
+**Step 1 — upload a test clip to Supabase.** Easiest is the Supabase web
+dashboard: *Storage → audio-clips → Upload file* → upload `scream_clip.wav`.
 
-Or with curl:
+**Step 2 — notify the backend** (with the server running):
 
 ```powershell
 curl.exe -X POST http://127.0.0.1:8000/api/events/audio `
   -F device_id=esp32-003 -F location_id=loc-003 -F "timestamp=2026-06-17T10:30:00" `
-  -F intensity=115 -F pitch=2400 -F confidence_score=0.97 -F duration_seconds=6 `
-  -F "audio_file=@scream_clip.wav;type=audio/wav"
+  -F sound_level=115 -F duration_seconds=6 `
+  -F supabase_file_path=scream_clip.wav
 ```
 
-Expected: a transcript, a high threat score, an alert fired — and a toast/beep on
-both the central dashboard and the teacher phone app.
+If you set `DEVICE_API_KEY` in `.env`, add: `-H "X-API-Key: <your key>"`.
+
+Expected response: `is_scream`, a real `transcript`, a `threat_score`,
+`severity`, and `alert_fired` — plus a toast/beep on both the central
+dashboard and the teacher phone app. The first request after startup is slower
+while the NLP model loads.
+
+> **Note:** `simulate_edge.py` still targets the old direct-upload contract
+> (multipart `audio_file`) and does not work against the current endpoint —
+> see §11.
 
 ---
 
@@ -240,23 +266,39 @@ cd sams_backend
 .\.venv\Scripts\python.exe -m pytest tests/ -v
 ```
 
+28 tests: MQTT service, NLP threat classifier, the STT→NLP processing
+pipeline (mocked AI, in-memory DB), and the JWT auth layer (login, token
+expiry, route protection, device API key, resolver stamping).
+
 ---
 
 ## 9. API reference
 
 Interactive docs are always at http://localhost:8000/docs. Key endpoints:
 
-**Submit audio (from the ESP32 edge device / simulator)**
+**Auth (staff)**
+```
+POST /api/auth/login        { "email": "…", "password": "…" }
+                            → { "access_token", "token_type", "user" }
+GET  /api/auth/me           current user profile (requires token)
+```
+All staff-facing endpoints below require `Authorization: Bearer <token>`.
+
+**Submit audio (from the ESP32 edge device — clip must already be in Supabase)**
 ```
 POST /api/events/audio          (multipart/form-data)
-  device_id        string   "esp32-003"
-  location_id      string   "loc-003"
-  timestamp        string   "2026-06-17T10:30:00"
-  intensity        float    115.0   (dB)
-  pitch            float    2400.0  (Hz)
-  confidence_score float    0.97    (edge scream score, 0–1)
-  duration_seconds float    6.0
-  audio_file       file     clip.wav
+  device_id          string   "esp32-003"
+  location_id        string   "loc-003"
+  timestamp          string   "2026-06-17T10:30:00"
+  sound_level        string   "115"    (dB from edge)
+  duration_seconds   string   "6"
+  supabase_file_path string   "clip.wav"  (object key in the audio-clips bucket)
+Header (only when DEVICE_API_KEY is set):  X-API-Key: <key>
+
+POST /api/events/webhook/supabase-storage   alternative: Supabase Storage
+                                            webhook fires it on upload
+                                            (idempotent — skips files already
+                                            processed via /audio)
 ```
 
 **Alerts (used by the dashboard and teacher PWA)**
@@ -265,6 +307,10 @@ GET  /api/alerts/?status=active&severity=high&per_page=50   feed
 GET  /api/alerts/stats                                      counters
 GET  /api/alerts/{alert_id}                                 full detail
 PUT  /api/alerts/{alert_id}/resolve                         { "resolution_notes": "…" }
+                                                            (stamps resolving user)
+GET  /api/events/{event_id}/audio?token=<jwt>               clip playback
+                                                            (?token= because <audio>
+                                                            tags can't send headers)
 ```
 
 **Analytics**
@@ -276,8 +322,9 @@ GET  /api/analytics/severity-breakdown   counts by severity
 
 **Real-time**
 ```
-WS   /ws/dashboard          live alert push (JSON {type:"ALERT", …})
-MQTT sams/alerts            same alert payload (when MQTT_ENABLED=true)
+WS   /ws/dashboard?token=<jwt>   live alert push (JSON {type:"ALERT", …});
+                                 invalid token → close code 4401
+MQTT sams/alerts                 same alert payload (when MQTT_ENABLED=true)
 ```
 
 ---
@@ -286,9 +333,12 @@ MQTT sams/alerts            same alert payload (when MQTT_ENABLED=true)
 
 | Symptom | Fix |
 |---|---|
+| Login returns 503 "Authentication not configured" | `JWT_SECRET_KEY` missing in `.env` (§3.2). |
+| API calls return 401 / dashboard bounces to login | Token expired (8 h) or missing — sign in again. |
 | Phone can't load `…:8000/m/` | Same Wi-Fi as the PC? Server started with `--host 0.0.0.0`? Firewall rule added (§5.3)? |
 | Dashboard dot stuck on "Connecting…" | Backend not running, or opened from a different host than `localhost`. |
-| Transcription empty / fails | `GROQ_API_KEY` missing or invalid in `.env`. |
+| Transcription shows "[transcription unavailable]" | `GROQ_API_KEY` missing or invalid in `.env` (scream alerts still fire). |
+| ESP32 gets 401 on `/api/events/audio` | `DEVICE_API_KEY` is set but the device isn't sending the matching `X-API-Key` header. |
 | "Install app" option missing on phone | Plain HTTP LAN IP isn't a secure context — see §5.5. |
 | MQTT errors at startup | Set `MQTT_ENABLED=false`, or start Mosquitto (§6). |
 
@@ -296,9 +346,21 @@ MQTT sams/alerts            same alert payload (when MQTT_ENABLED=true)
 
 ## 11. Known gaps / next steps
 
-- **Authentication:** the teacher PWA login is a UI shell (no real auth yet);
-  JWT login + role-based access (FR23) is the next backend iteration.
+- **`simulate_edge.py` is outdated:** it still sends the old direct-upload
+  contract (multipart `audio_file`); the active endpoint expects a
+  `supabase_file_path` pointing at a clip already in the bucket. Use the §7
+  two-step test instead until the simulator is rewritten.
+- **Acknowledge alerts (FR17):** the dashboard has resolve only; a separate
+  acknowledge step (per the use case diagram) is not implemented yet.
+- **Alert routing by role/proximity (FR16):** all signed-in staff receive all
+  alerts; per-location routing is future work.
 - **Multilingual NLP:** the active model is English-only; Malay/Manglish currently
   relies on a keyword booster. Multilingual XLM-R model swap is planned.
-- **Edge integration:** real ESP32-C3 + INMP441 device (teammate's module) POSTs
-  to `/api/events/audio` — the backend already auto-registers devices.
+- **Speech Emotion Recognition (§2.1.3 of the report)** and **CCTV retrieval
+  from nearby authorized areas** are not implemented in this repo.
+- **Transport security:** WebSocket/MQTT run unencrypted on the LAN demo;
+  WSS/MQTTS per the report's Security Design needs a TLS-terminating deploy.
+- **Edge integration:** real ESP32-C3 + INMP441 device (teammate's module)
+  uploads to Supabase then notifies `/api/events/audio` — the backend
+  auto-registers devices. When `DEVICE_API_KEY` is enabled, the firmware must
+  send the `X-API-Key` header.

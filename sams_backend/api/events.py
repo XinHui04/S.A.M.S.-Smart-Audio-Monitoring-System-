@@ -132,13 +132,16 @@ from sqlalchemy import desc
 from supabase import create_client, Client
 from config.settings import get_settings
 
-from models.database import Event, AudioClip, Device, Location, Alert
+from models.database import Event, AudioClip, Device, Location, Alert, User
 from models.schemas import ProcessingResponse
 from api.dependencies import (
     get_db,
     get_pipeline,
     get_ws_manager,
     get_audio_storage,
+    get_current_user,
+    get_current_user_query_ok,
+    verify_device_key,
 )
 from services.storage_service import AudioStorageService
 from services.audio_capture_service import AudioCaptureService
@@ -165,6 +168,7 @@ _analyzer = ScreamAnalyzer()
 @router.post(
     "/audio",
     summary="[ESP32] Notify backend after uploading audio to Supabase",
+    dependencies=[Depends(verify_device_key)],   # devices use X-API-Key, not JWT
 )
 async def receive_audio_event(
     device_id: str = Form(...),
@@ -176,6 +180,7 @@ async def receive_audio_event(
     supabase_file_path: str = Form(...),  # The filename uploaded to Supabase
     db: Session = Depends(get_db),
     audio_storage: AudioStorageService = Depends(get_audio_storage),
+    pipeline = Depends(get_pipeline),
 ):
     """
     ESP32 calls this after uploading audio to Supabase.
@@ -264,58 +269,84 @@ async def receive_audio_event(
         db.commit()
         db.refresh(clip)
         
-        # ── Step 5: If scream detected, create alert and broadcast ──────────────
-        alert_fired = False
-        alert_id = None
-        
-        if is_scream:
-            severity = "high" if confidence > 0.7 else ("medium" if confidence > 0.4 else "low")
-            
-            alert_id = str(uuid.uuid4())
-            alert = Alert(
-                alert_id=alert_id,
-                event_id=event_id,
-                severity=severity,
-                status="active",
-                created_at=datetime.utcnow()
-            )
-            db.add(alert)
-            db.commit()
-            db.refresh(alert)
-            alert_fired = True
-            
-            location = db.query(Location).filter(Location.location_id == location_id).first()
-            location_name = location.location_name if location else location_id
-            
-            logger.warning(f"[Audio] 🚨 ALERT FIRED! severity={severity}, confidence={confidence:.3f}")
-            
-            # Broadcast via WebSocket
-            try:
-                ws_manager = get_ws_manager()
-                await ws_manager.broadcast_alert(
-                    alert_id=alert_id,
-                    event_id=event_id,
-                    location_name=location_name,
-                    severity=severity,
-                    threat_score=confidence,
-                    classification="scream" if is_scream else "noise",
-                    transcript=f"Scream detected with {confidence:.1%} confidence",
-                    audio_url=f"/api/events/{event_id}/audio",
-                    timestamp=event_timestamp.isoformat()
-                )
-                logger.info(f"[Audio] WebSocket broadcast sent")
-            except Exception as e:
-                logger.error(f"[Audio] WebSocket broadcast failed: {e}")
-        
+        # ── Step 5 (OLD): If scream detected, create alert and broadcast ─────────
+        # alert_fired = False
+        # alert_id = None
+        #
+        # if is_scream:
+        #     severity = "high" if confidence > 0.7 else ("medium" if confidence > 0.4 else "low")
+        #
+        #     alert_id = str(uuid.uuid4())
+        #     alert = Alert(
+        #         alert_id=alert_id,
+        #         event_id=event_id,
+        #         severity=severity,
+        #         status="active",
+        #         created_at=datetime.utcnow()
+        #     )
+        #     db.add(alert)
+        #     db.commit()
+        #     db.refresh(alert)
+        #     alert_fired = True
+        #
+        #     location = db.query(Location).filter(Location.location_id == location_id).first()
+        #     location_name = location.location_name if location else location_id
+        #
+        #     logger.warning(f"[Audio] 🚨 ALERT FIRED! severity={severity}, confidence={confidence:.3f}")
+        #
+        #     # Broadcast via WebSocket
+        #     try:
+        #         ws_manager = get_ws_manager()
+        #         await ws_manager.broadcast_alert(
+        #             alert_id=alert_id,
+        #             event_id=event_id,
+        #             location_name=location_name,
+        #             severity=severity,
+        #             threat_score=confidence,
+        #             classification="scream" if is_scream else "noise",
+        #             transcript=f"Scream detected with {confidence:.1%} confidence",
+        #             audio_url=f"/api/events/{event_id}/audio",
+        #             timestamp=event_timestamp.isoformat()
+        #         )
+        #         logger.info(f"[Audio] WebSocket broadcast sent")
+        #     except Exception as e:
+        #         logger.error(f"[Audio] WebSocket broadcast failed: {e}")
+        #
+        # # ── Step 6 (OLD): Return response to ESP32 ──────────────────────────────
+        # return {
+        #     "status": "success",
+        #     "event_id": event_id,
+        #     "is_scream": is_scream,
+        #     "confidence": confidence,
+        #     "alert_fired": alert_fired,
+        #     "alert_id": alert_id,
+        #     "message": "Scream detected!" if is_scream else "No scream detected"
+        # }
+
+        # ── Step 5: Run STT + NLP pipeline, apply alert rule, broadcast ──────────
+        pipeline_result = await pipeline.process_stored_audio(
+            db=db,
+            audio_bytes=audio_bytes,
+            event=event,
+            clip=clip,
+            location_id=location_id,
+            scream_confidence=confidence,
+            is_scream=is_scream,
+        )
+
         # ── Step 6: Return response to ESP32 ──────────────────────────────────────
         return {
             "status": "success",
             "event_id": event_id,
             "is_scream": is_scream,
             "confidence": confidence,
-            "alert_fired": alert_fired,
-            "alert_id": alert_id,
-            "message": "Scream detected!" if is_scream else "No scream detected"
+            "alert_fired": pipeline_result.get("alert_fired", False),
+            "alert_id": pipeline_result.get("alert_id"),
+            "transcript": pipeline_result.get("transcript"),
+            "threat_score": pipeline_result.get("threat_score"),
+            "severity": pipeline_result.get("severity"),
+            "classification": pipeline_result.get("classification"),
+            "message": "Alert fired!" if pipeline_result.get("alert_fired") else "Processed — no alert"
         }
         
     except Exception as e:
@@ -326,7 +357,14 @@ async def receive_audio_event(
 
 
 @router.get("/{event_id}/audio", summary="Stream audio clip straight out of Supabase Storage")
-async def stream_audio(event_id: str, db: Session = Depends(get_db), audio_storage: AudioStorageService = Depends(get_audio_storage)):
+async def stream_audio(
+    event_id: str,
+    db: Session = Depends(get_db),
+    audio_storage: AudioStorageService = Depends(get_audio_storage),
+    # The dashboard <audio> tag can't send headers, so this dependency also
+    # accepts ?token=<jwt> as a fallback (Authorization header wins if both set).
+    user: User = Depends(get_current_user_query_ok),
+):
     """Pipes the file from Supabase right down to the dashboard browser player."""
     clip = db.query(AudioClip).filter(AudioClip.event_id == event_id).first()
     if not clip or not clip.file_path:
@@ -373,7 +411,8 @@ async def stream_audio(event_id: str, db: Session = Depends(get_db), audio_stora
 )
 async def get_all_events(
     limit: int = 100,
-    db: Session = Depends(get_db),
+    db:   Session = Depends(get_db),
+    user: User    = Depends(get_current_user),
 ):
     """Returns all historic events from tracking database, ordered chronologically descending."""
     try:
@@ -419,7 +458,8 @@ async def get_all_events(
     summary="Get event statistics for the dashboard",
 )
 async def get_event_stats(
-    db: Session = Depends(get_db),
+    db:   Session = Depends(get_db),
+    user: User    = Depends(get_current_user),
 ):
     """Calculates status overview metric counters for dashboard view displays."""
     try:
@@ -446,12 +486,14 @@ async def get_event_stats(
 
 @router.post(
     "/webhook/supabase-storage",
-    summary="[Webhook] Triggered by Supabase when new audio is uploaded"
+    summary="[Webhook] Triggered by Supabase when new audio is uploaded",
+    dependencies=[Depends(verify_device_key)],   # machine-to-machine — X-API-Key, not JWT
 )
 async def supabase_storage_webhook(
     payload: dict = Body(...),
     db: Session = Depends(get_db),
-    audio_storage: AudioStorageService = Depends(get_audio_storage)
+    audio_storage: AudioStorageService = Depends(get_audio_storage),
+    pipeline = Depends(get_pipeline),
 ):
     """
     Called by Supabase Storage webhook when a new file is uploaded.
@@ -473,7 +515,15 @@ async def supabase_storage_webhook(
         if not file_name.endswith('.wav'):
             logger.info(f"[Webhook] Skipping non-audio file: {file_name}")
             return {"status": "skipped", "reason": "Not a WAV file"}
-        
+
+        # ── Idempotency guard: skip files already processed ──────────────────
+        # AudioClip.file_path is stored as the bare Supabase object name below,
+        # so an exact match on file_name means this webhook already ran for it.
+        existing_clip = db.query(AudioClip).filter(AudioClip.file_path == file_name).first()
+        if existing_clip:
+            logger.info(f"[Webhook] File already processed, skipping: {file_name}")
+            return {"status": "skipped", "message": "File already processed"}
+
         # ── Extract device info from filename ────────────────────────────────
         # Filename format: esp32-001_20260629T155300Z.wav
         # OR: 1ea33c87-35db-40a3-903e-d1e512fe5c4a.wav (UUID)
@@ -552,57 +602,82 @@ async def supabase_storage_webhook(
         db.commit()
         db.refresh(clip)
         
-        # ── If scream detected, create alert and broadcast ──────────────────
-        alert_fired = False
-        alert_id = None
-        
-        if is_scream:
-            severity = "high" if confidence > 0.7 else ("medium" if confidence > 0.4 else "low")
-            
-            alert_id = str(uuid.uuid4())
-            alert = Alert(
-                alert_id=alert_id,
-                event_id=event_id,
-                severity=severity,
-                status="active",
-                created_at=datetime.utcnow()
-            )
-            db.add(alert)
-            db.commit()
-            db.refresh(alert)
-            alert_fired = True
-            
-            location = db.query(Location).filter(Location.location_id == location_id).first()
-            location_name = location.location_name if location else location_id
-            
-            logger.warning(f"[Webhook] 🚨 ALERT FIRED! severity={severity}, confidence={confidence:.3f}")
-            
-            # Broadcast via WebSocket
-            try:
-                ws_manager = get_ws_manager()
-                await ws_manager.broadcast_alert(
-                    alert_id=alert_id,
-                    event_id=event_id,
-                    location_name=location_name,
-                    severity=severity,
-                    threat_score=confidence,
-                    classification="scream" if is_scream else "noise",
-                    transcript=f"Scream detected with {confidence:.1%} confidence",
-                    audio_url=f"/api/events/{event_id}/audio",
-                    timestamp=event_timestamp.isoformat()
-                )
-                logger.info(f"[Webhook] WebSocket broadcast sent")
-            except Exception as e:
-                logger.error(f"[Webhook] WebSocket broadcast failed: {e}")
-        
+        # ── (OLD) If scream detected, create alert and broadcast ─────────────
+        # alert_fired = False
+        # alert_id = None
+        #
+        # if is_scream:
+        #     severity = "high" if confidence > 0.7 else ("medium" if confidence > 0.4 else "low")
+        #
+        #     alert_id = str(uuid.uuid4())
+        #     alert = Alert(
+        #         alert_id=alert_id,
+        #         event_id=event_id,
+        #         severity=severity,
+        #         status="active",
+        #         created_at=datetime.utcnow()
+        #     )
+        #     db.add(alert)
+        #     db.commit()
+        #     db.refresh(alert)
+        #     alert_fired = True
+        #
+        #     location = db.query(Location).filter(Location.location_id == location_id).first()
+        #     location_name = location.location_name if location else location_id
+        #
+        #     logger.warning(f"[Webhook] 🚨 ALERT FIRED! severity={severity}, confidence={confidence:.3f}")
+        #
+        #     # Broadcast via WebSocket
+        #     try:
+        #         ws_manager = get_ws_manager()
+        #         await ws_manager.broadcast_alert(
+        #             alert_id=alert_id,
+        #             event_id=event_id,
+        #             location_name=location_name,
+        #             severity=severity,
+        #             threat_score=confidence,
+        #             classification="scream" if is_scream else "noise",
+        #             transcript=f"Scream detected with {confidence:.1%} confidence",
+        #             audio_url=f"/api/events/{event_id}/audio",
+        #             timestamp=event_timestamp.isoformat()
+        #         )
+        #         logger.info(f"[Webhook] WebSocket broadcast sent")
+        #     except Exception as e:
+        #         logger.error(f"[Webhook] WebSocket broadcast failed: {e}")
+        #
+        # return {
+        #     "status": "success",
+        #     "event_id": event_id,
+        #     "is_scream": is_scream,
+        #     "confidence": confidence,
+        #     "alert_fired": alert_fired,
+        #     "alert_id": alert_id,
+        #     "message": "Scream detected!" if is_scream else "No scream detected"
+        # }
+
+        # ── Run STT + NLP pipeline, apply alert rule, broadcast ──────────────
+        pipeline_result = await pipeline.process_stored_audio(
+            db=db,
+            audio_bytes=audio_bytes,
+            event=event,
+            clip=clip,
+            location_id=location_id,
+            scream_confidence=confidence,
+            is_scream=is_scream,
+        )
+
         return {
             "status": "success",
             "event_id": event_id,
             "is_scream": is_scream,
             "confidence": confidence,
-            "alert_fired": alert_fired,
-            "alert_id": alert_id,
-            "message": "Scream detected!" if is_scream else "No scream detected"
+            "alert_fired": pipeline_result.get("alert_fired", False),
+            "alert_id": pipeline_result.get("alert_id"),
+            "transcript": pipeline_result.get("transcript"),
+            "threat_score": pipeline_result.get("threat_score"),
+            "severity": pipeline_result.get("severity"),
+            "classification": pipeline_result.get("classification"),
+            "message": "Alert fired!" if pipeline_result.get("alert_fired") else "Processed — no alert"
         }
         
     except Exception as e:

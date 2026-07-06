@@ -53,7 +53,7 @@ body {
 button { font-family: inherit; cursor: pointer; }
 [hidden] { display: none !important; }
 
-/* ── Login view (UI shell — real auth wired in a later iteration) ─────────── */
+/* ── Login view (JWT auth against the backend /api/auth/login) ────────────── */
 .login {
   min-height: 100dvh;
   display: flex; flex-direction: column;
@@ -89,6 +89,11 @@ button { font-family: inherit; cursor: pointer; }
 .login-note {
   font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);
   margin-top: 4px;
+}
+.login-error {
+  padding: 10px 12px; font-size: 13px; text-align: left;
+  color: var(--red); background: var(--red-dim);
+  border: 1px solid var(--red); border-radius: var(--radius);
 }
 
 /* ── App shell ───────────────────────────────────────────────────────────── */

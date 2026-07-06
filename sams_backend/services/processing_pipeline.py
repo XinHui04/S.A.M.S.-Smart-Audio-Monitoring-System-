@@ -37,6 +37,7 @@ Exact flow matching Figure 4.1 System Architecture Diagram:
 """
 import logging
 import os
+import tempfile
 import uuid
 from datetime import datetime
 
@@ -263,6 +264,171 @@ class ProcessingPipeline:
                 "Processed — below threat threshold"
             ),
         )
+
+    async def process_stored_audio(
+        self,
+        db:                Session,
+        audio_bytes:       bytes,
+        event,                              # Event ORM row, already committed
+        clip,                               # AudioClip ORM row, already committed
+        location_id:       str,
+        scream_confidence: float,
+        is_scream:         bool,
+    ) -> dict:
+        """
+        MODULE 2 for pre-stored audio: the ingestion endpoint has already
+        downloaded the clip from Audio Object Storage and created the Event
+        and AudioClip rows, so this method only runs STT → NLP → alert.
+
+        Graceful degradation: if STT or NLP fails (e.g. missing API key),
+        a placeholder Transcript + zero-score Analysis are saved and the
+        scream detection alone still decides the alert — an AI failure
+        must never suppress a scream alert.
+        """
+        # ── Part A: STT (via a local temp WAV, always cleaned up) ─────────────
+        transcript_text = ""
+        language        = "unknown"
+        stt_ok          = False
+
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        try:
+            tmp.write(audio_bytes)
+            tmp.close()
+            try:
+                stt_result      = await self.stt.transcribe(tmp.name)
+                transcript_text = stt_result["text"]
+                language        = stt_result["language"]
+                stt_ok          = True
+            except Exception as e:
+                logger.warning(f"Event {event.event_id}: STT failed ({e}) — continuing without transcript.")
+        finally:
+            try:
+                if not tmp.closed:
+                    tmp.close()
+                os.remove(tmp.name)
+            except OSError as e:
+                logger.warning(f"Could not remove temp working copy: {e}")
+
+        has_speech = stt_ok and bool(transcript_text.strip())
+        stored_text = (
+            transcript_text if has_speech
+            else ("[no speech detected]" if stt_ok else "[transcription unavailable]")
+        )
+
+        transcript = Transcript(
+            transcript_id = str(uuid.uuid4()),
+            clip_id       = clip.clip_id,
+            text          = stored_text,
+        )
+        db.add(transcript)
+        db.commit()
+        db.refresh(transcript)
+
+        # ── Part B: NLP threat analysis (zero-score fallback on failure) ──────
+        # Severity fallback derived from the edge scream confidence
+        if scream_confidence > 0.7:
+            scream_severity = "high"
+        elif scream_confidence > 0.4:
+            scream_severity = "medium"
+        else:
+            scream_severity = "low"
+
+        threat = None
+        if has_speech:
+            try:
+                threat = await self.nlp.analyse(transcript_text, language)
+            except Exception as e:
+                logger.warning(f"Event {event.event_id}: NLP failed ({e}) — falling back to scream-only scoring.")
+
+        if threat is not None:
+            threat_score   = threat.threat_score
+            severity       = threat.severity_level
+            classification = threat.classification
+        else:
+            # No usable transcript (or NLP failure) — score on scream alone
+            threat_score   = 0.0
+            severity       = scream_severity
+            classification = "scream" if is_scream else "unknown"
+
+        analysis = Analysis(
+            analysis_id    = str(uuid.uuid4()),
+            transcript_id  = transcript.transcript_id,
+            severity_level = severity,
+            classification = classification,
+            threat_score   = threat_score,
+        )
+        db.add(analysis)
+        db.commit()
+        db.refresh(analysis)
+
+        # ── Alert: fire on scream detection OR NLP threat score ──────────────
+        final_score = max(scream_confidence, threat_score)
+        alert_fired = is_scream or threat_score >= self.threshold
+        alert_id    = None
+
+        if alert_fired:
+            alert = Alert(
+                alert_id   = str(uuid.uuid4()),
+                event_id   = event.event_id,
+                severity   = severity,
+                status     = "active",
+                created_at = datetime.utcnow(),
+            )
+            db.add(alert)
+            db.commit()
+            db.refresh(alert)
+            alert_id = alert.alert_id
+
+            # Fetch location name for WebSocket push
+            location      = db.query(Location).filter(Location.location_id == location_id).first()
+            location_name = location.location_name if location else location_id
+
+            # ── MODULE 4: WebSocket push to dashboard ─────────────────────────
+            await self.ws.broadcast_alert(
+                alert_id       = alert.alert_id,
+                event_id       = event.event_id,
+                location_name  = location_name,
+                severity       = severity,
+                threat_score   = final_score,
+                classification = classification,
+                transcript     = stored_text,
+                audio_url      = f"/api/events/{event.event_id}/audio",
+                timestamp      = event.timestamp.isoformat(),
+            )
+
+            # ── MODULE 4: MQTT fan-out to external subscribers (Figs 4.1/4.2) ──
+            if self.mqtt:
+                self.mqtt.publish_alert(
+                    alert_id       = alert.alert_id,
+                    event_id       = event.event_id,
+                    location_name  = location_name,
+                    severity       = severity,
+                    threat_score   = final_score,
+                    classification = classification,
+                    transcript     = stored_text,
+                    audio_url      = f"/api/events/{event.event_id}/audio",
+                    timestamp      = event.timestamp.isoformat(),
+                )
+
+            logger.warning(
+                f"ALERT FIRED | severity={severity} | "
+                f"score={final_score} | location={location_name} | "
+                f"transcript='{stored_text[:60]}'"
+            )
+        else:
+            logger.info(
+                f"Event {event.event_id}: score={final_score:.3f} "
+                f"below threshold {self.threshold} and no scream — logged, no alert."
+            )
+
+        return {
+            "transcript":     stored_text,
+            "threat_score":   final_score,
+            "severity":       severity,
+            "classification": classification,
+            "alert_fired":    alert_fired,
+            "alert_id":       alert_id,
+        }
 
     def _cleanup_local_working_copy(self, file_ref: str, local_path: str) -> None:
         """

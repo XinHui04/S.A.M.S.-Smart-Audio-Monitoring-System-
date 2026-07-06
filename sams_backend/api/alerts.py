@@ -9,9 +9,9 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from models.database import Alert, Event, Device, Location, AudioClip, Transcript, Analysis
+from models.database import Alert, Event, Device, Location, AudioClip, Transcript, Analysis, User
 from models.schemas import AlertResolveRequest
-from api.dependencies import get_db
+from api.dependencies import get_db, get_current_user
 
 router = APIRouter(prefix="/api/alerts", tags=["Module 3+4 — Alerts & Dashboard"])
 logger = logging.getLogger(__name__)
@@ -53,7 +53,8 @@ async def list_alerts(
     severity: str = None,
     page:     int = 1,
     per_page: int = 20,
-    db: Session = Depends(get_db),
+    db:   Session = Depends(get_db),
+    user: User    = Depends(get_current_user),
 ):
     query = db.query(Alert).order_by(Alert.created_at.desc())
     if status != "all":
@@ -73,7 +74,7 @@ async def list_alerts(
 
 
 @router.get("/stats", summary="Dashboard header stats")
-async def stats(db: Session = Depends(get_db)):
+async def stats(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return {
         "active_alerts":   db.query(Alert).filter(Alert.status == "active").count(),
         "resolved_alerts": db.query(Alert).filter(Alert.status == "resolved").count(),
@@ -84,7 +85,7 @@ async def stats(db: Session = Depends(get_db)):
 
 
 @router.get("/{alert_id}", summary="Get full alert detail")
-async def get_alert(alert_id: str, db: Session = Depends(get_db)):
+async def get_alert(alert_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     alert = db.query(Alert).filter(Alert.alert_id == alert_id).first()
     if not alert:
         raise HTTPException(404, "Alert not found")
@@ -96,6 +97,7 @@ async def resolve_alert(
     alert_id: str,
     body:     AlertResolveRequest,
     db:       Session = Depends(get_db),
+    user:     User    = Depends(get_current_user),
 ):
     alert = db.query(Alert).filter(Alert.alert_id == alert_id).first()
     if not alert:
@@ -106,5 +108,7 @@ async def resolve_alert(
     alert.status           = "resolved"
     alert.resolved_at      = datetime.utcnow()
     alert.resolution_notes = body.resolution_notes
+    if user is not None:   # None only when auth is unconfigured (dev mode)
+        alert.user_id = user.user_id   # audit: who resolved it
     db.commit()
     return {"message": "Alert resolved", "alert_id": alert_id}

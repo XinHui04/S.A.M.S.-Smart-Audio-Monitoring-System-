@@ -21,7 +21,7 @@
 </head>
 <body>
 
-  <!-- ── Login view (UI shell — real auth in a later iteration) ───────────── -->
+  <!-- ── Login view (JWT auth against POST /api/auth/login) ──────────────── -->
   <section class="login" id="login-view" hidden>
     <div class="login-logo">
       <svg width="34" height="34" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -34,20 +34,17 @@
 
     <form class="login-form" id="login-form">
       <div class="field">
-        <label for="login-name">Name</label>
-        <input id="login-name" type="text" autocomplete="name" placeholder="e.g. Ms. Tan" required>
+        <label for="login-email">Email</label>
+        <input id="login-email" type="email" autocomplete="username" placeholder="e.g. siti@school.edu.my" required>
       </div>
       <div class="field">
-        <label for="login-role">Role</label>
-        <select id="login-role">
-          <option value="teacher">Teacher</option>
-          <option value="security">Security personnel</option>
-          <option value="admin">Administrator</option>
-        </select>
+        <label for="login-password">Password</label>
+        <input id="login-password" type="password" autocomplete="current-password" placeholder="Your password" required>
       </div>
-      <button type="submit" class="btn-primary">Enter</button>
+      <div class="login-error" id="login-error" role="alert" hidden></div>
+      <button type="submit" class="btn-primary" id="login-submit">Sign in</button>
     </form>
-    <p class="login-note">Prototype sign-in — secure login is coming in a later update.</p>
+    <p class="login-note">Demo accounts: admin@school.edu.my / Admin@1234 · siti@school.edu.my / Staff@1234</p>
   </section>
 
   <!-- ── App ──────────────────────────────────────────────────────────────── -->

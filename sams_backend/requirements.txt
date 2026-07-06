@@ -12,6 +12,9 @@ soundfile==0.12.1
 numpy==1.26.4
 # librosa 0.10.1 imports pkg_resources, which setuptools>=81 removed
 setuptools<81
+# Cloud-side TFLite scream model (services/scream_analyzer.py) — tf.signal features
+# + tf.lite.Interpreter. Compatible with numpy 1.26.4 pinned above.
+tensorflow==2.16.1
 
 # Module 2: Cloud Processing & AI Analysis
 # STT — Groq API (free, no credit card, Whisper Large v3)
@@ -43,6 +46,8 @@ python-dotenv==1.0.1
 passlib[bcrypt]==1.7.4
 # Pinned to 4.0.1: passlib 1.7.4 probes bcrypt.__about__, which bcrypt>=4.1 removed.
 bcrypt==4.0.1
+# JWT access tokens for dashboard login (FR23)
+PyJWT==2.8.0
 
 # Testing
 pytest==8.2.0
