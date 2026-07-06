@@ -64,6 +64,7 @@ class NLPService:
         self.model_name = model_name
         self.threshold  = threshold
         self._pipeline  = None   # lazy-loaded
+        self._load()  # preload the model at startup to avoid first-request lag
 
     def _load(self):
         if self._pipeline is None:
