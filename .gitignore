@@ -25,3 +25,10 @@ build/
 Thumbs.db
 .idea/
 .vscode/
+
+# Runtime artifacts
+sams_backend/sams.db
+*.db-journal
+*.db-wal
+*.db-shm
+sams_backend/audio_storage/

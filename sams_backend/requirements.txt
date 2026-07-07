@@ -40,10 +40,14 @@ paho-mqtt==1.6.1
 # Config + utils
 pydantic==2.7.1
 pydantic-settings==2.2.1
+# Required by pydantic's EmailStr (models/schemas.py auth schemas)
+email-validator==2.3.0
 python-dotenv==1.0.1
 
 # Auth — password hashing for seeded users / login
 passlib[bcrypt]==1.7.4
+# IP-based rate limiting on brute-forceable endpoints (login, device ingestion)
+slowapi==0.1.9
 # Pinned to 4.0.1: passlib 1.7.4 probes bcrypt.__about__, which bcrypt>=4.1 removed.
 bcrypt==4.0.1
 # JWT access tokens for dashboard login (FR23)

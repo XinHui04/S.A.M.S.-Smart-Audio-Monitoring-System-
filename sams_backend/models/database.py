@@ -4,7 +4,7 @@ SQLAlchemy models (local SQLite for dev/tests, Supabase Postgres for cloud via D
 Matches the ERD from your FYP report exactly.
 """
 from sqlalchemy import (
-    create_engine, Column, String, Float, DateTime,
+    create_engine, event, Column, String, Float, DateTime,
     Text, Boolean, ForeignKey
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
@@ -177,7 +177,22 @@ def create_db_engine(database_url: str = "", sqlite_path: str = "./sams.db"):
     url = resolve_database_url(database_url, sqlite_path)
 
     if url.startswith("sqlite"):
-        engine = create_engine(url, connect_args={"check_same_thread": False})
+        engine = create_engine(
+            url,
+            connect_args={"check_same_thread": False, "timeout": 30},
+        )
+
+        # WAL lets the dashboard read while the pipeline writes; busy_timeout
+        # prevents immediate "database is locked" errors under concurrent
+        # writers. foreign_keys must be re-enabled per connection on SQLite.
+        @event.listens_for(engine, "connect")
+        def _set_sqlite_pragmas(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL;")
+            cursor.execute("PRAGMA busy_timeout=30000;")
+            cursor.execute("PRAGMA synchronous=NORMAL;")
+            cursor.execute("PRAGMA foreign_keys=ON;")
+            cursor.close()
     else:
         engine = create_engine(url, pool_pre_ping=True)
 

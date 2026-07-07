@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 480
     device_api_key:              str = ""       # opt-in — when set, ESP32 ingestion endpoints require X-API-Key
 
+    # Rate limiting — IP-based (slowapi) on brute-forceable endpoints
+    # (login, device ingestion). Disable only for tests / local debugging.
+    rate_limit_enabled: bool = True
+
     # CORS — comma-separated list of allowed origins for the dashboard/PWA.
     # In development ("app_env=development") a wildcard is also allowed so the
     # LAN demo works when the dashboard is opened from any host; in production

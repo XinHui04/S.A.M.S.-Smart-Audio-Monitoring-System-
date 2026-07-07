@@ -2,7 +2,7 @@
 models/schemas.py
 Pydantic v2 schemas — what the API accepts and returns.
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 from datetime import datetime
 
@@ -70,19 +70,19 @@ class AlertResolveRequest(BaseModel):
 # ─── Auth ────────────────────────────────────────────────────────────────────
 
 class LoginRequest(BaseModel):
-    email:    str = Field(..., description="Registered staff/admin email")
+    email:    EmailStr = Field(..., description="Registered staff/admin email")
     password: str = Field(..., min_length=1, description="Plaintext password (verified against bcrypt hash)")
 
 class UserCreate(BaseModel):
     name:     str
-    email:    str
+    email:    EmailStr
     password: str
     role:     str = "staff"
 
 class UserOut(BaseModel):
     user_id: str
     name:    str
-    email:   str
+    email:   EmailStr
     role:    str
 
     class Config:

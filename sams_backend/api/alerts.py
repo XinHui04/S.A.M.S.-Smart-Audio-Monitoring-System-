@@ -6,7 +6,7 @@ MODULE 3 & 4: Reporting + Main Monitoring Dashboard
 """
 import logging
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import case
 from sqlalchemy.orm import Session
 
@@ -16,6 +16,43 @@ from api.dependencies import get_db, get_current_user
 
 router = APIRouter(prefix="/api/alerts", tags=["Module 3+4 — Alerts & Dashboard"])
 logger = logging.getLogger(__name__)
+
+
+def _assert_alert_access(alert: Alert, user: User, db: Session) -> None:
+    """
+    FR16 per-alert authorization: staff with location assignments may only
+    access alerts from their assigned locations.
+
+    Allows when:
+      - user is None (dev mode, auth unconfigured) or user is an admin;
+      - the user has NO StaffLocation rows (fail-open — missing config must
+        never hide a safety incident, consistent with the feed behavior);
+      - the alert's location cannot be resolved (missing event/device —
+        fail-open, same rationale).
+
+    Otherwise raises 404 (NOT 403) when the alert's location is outside the
+    user's assignments, so alert IDs are not enumerable by unauthorized staff.
+    """
+    if user is None or user.role == "admin":
+        return
+
+    assigned = [
+        row.location_id
+        for row in db.query(StaffLocation)
+                     .filter(StaffLocation.user_id == user.user_id)
+                     .all()
+    ]
+    if not assigned:
+        return   # unassigned staff are unrestricted (fail-open)
+
+    event  = alert.event
+    device = db.query(Device).filter(Device.device_id == event.device_id).first() if event else None
+    if device is None or device.location_id is None:
+        return   # location unresolvable → fail-open
+
+    if device.location_id not in assigned:
+        # 404, not 403 — do not reveal that the alert ID exists.
+        raise HTTPException(404, "Alert not found")
 
 
 def _enrich_alert(alert: Alert, db: Session) -> dict:
@@ -52,8 +89,8 @@ def _enrich_alert(alert: Alert, db: Session) -> dict:
 async def list_alerts(
     status:   str = "open",   # active | acknowledged | resolved | open (active+acknowledged) | all
     severity: str = None,
-    page:     int = 1,
-    per_page: int = 20,
+    page:     int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
     db:   Session = Depends(get_db),
     user: User    = Depends(get_current_user),
 ):
@@ -70,7 +107,9 @@ async def list_alerts(
     # FR16: staff with location assignments only see alerts from those
     # locations. Admins, dev-mode (user=None) and UNASSIGNED staff see all
     # (fail-open — missing config must never hide a safety incident).
-    # Note: /stats and GET /{alert_id} are intentionally left unfiltered.
+    # Note: /stats is intentionally left unfiltered (aggregate counts only);
+    # GET /{alert_id}, /acknowledge and /resolve enforce the same rule via
+    # _assert_alert_access.
     if user is not None and user.role != "admin":
         assigned = [
             row.location_id
@@ -120,6 +159,7 @@ async def get_alert(alert_id: str, db: Session = Depends(get_db), user: User = D
     alert = db.query(Alert).filter(Alert.alert_id == alert_id).first()
     if not alert:
         raise HTTPException(404, "Alert not found")
+    _assert_alert_access(alert, user, db)   # FR16
     return _enrich_alert(alert, db)
 
 
@@ -132,6 +172,7 @@ async def acknowledge_alert(
     alert = db.query(Alert).filter(Alert.alert_id == alert_id).first()
     if not alert:
         raise HTTPException(404, "Alert not found")
+    _assert_alert_access(alert, user, db)   # FR16
     if alert.status == "acknowledged":
         raise HTTPException(409, "Already acknowledged")
     if alert.status == "resolved":
@@ -154,6 +195,7 @@ async def resolve_alert(
     alert = db.query(Alert).filter(Alert.alert_id == alert_id).first()
     if not alert:
         raise HTTPException(404, "Alert not found")
+    _assert_alert_access(alert, user, db)   # FR16
     if alert.status == "resolved":
         raise HTTPException(409, "Already resolved")
 

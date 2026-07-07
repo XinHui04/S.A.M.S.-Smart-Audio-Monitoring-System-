@@ -126,7 +126,7 @@ import io
 import os
 import tempfile
 from datetime import datetime
-from fastapi import APIRouter, Body, UploadFile, File, Form, Depends, HTTPException
+from fastapi import APIRouter, Body, UploadFile, File, Form, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
@@ -147,6 +147,7 @@ from api.dependencies import (
 from services.storage_service import AudioStorageService
 from services.audio_capture_service import AudioCaptureService
 from services.scream_analyzer import ScreamAnalyzer
+from utils.rate_limit import limiter
 
 router = APIRouter(prefix="/api/events", tags=["Module 1+2 — Audio Ingestion"])
 logger = logging.getLogger(__name__)
@@ -171,7 +172,9 @@ _analyzer = ScreamAnalyzer()
     summary="[ESP32] Notify backend after uploading audio to Supabase",
     dependencies=[Depends(verify_device_key)],   # devices use X-API-Key, not JWT
 )
+@limiter.limit("30/minute")   # abuse protection — per client IP
 async def receive_audio_event(
+    request: Request,
     device_id: str = Form(...),
     location_id: str = Form(...),
     timestamp: str = Form(...),
@@ -479,7 +482,7 @@ async def stream_audio(
     summary="Get all events for the Scream Alerts dashboard tab",
 )
 async def get_all_events(
-    limit: int = 100,
+    limit: int = Query(100, ge=1, le=500),
     db:   Session = Depends(get_db),
     user: User    = Depends(get_current_user),
 ):
@@ -575,7 +578,9 @@ async def get_event_stats(
     summary="[Webhook] Triggered by Supabase when new audio is uploaded",
     dependencies=[Depends(verify_device_key)],   # machine-to-machine — X-API-Key, not JWT
 )
+@limiter.limit("30/minute")   # abuse protection — per client IP
 async def supabase_storage_webhook(
+    request: Request,
     payload: dict = Body(...),
     db: Session = Depends(get_db),
     audio_storage: AudioStorageService = Depends(get_audio_storage),

@@ -16,8 +16,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from config.settings import get_settings
+from utils.rate_limit import limiter
 from api.events    import router as events_router
 from api.alerts    import router as alerts_router
 from api.analytics import router as analytics_router
@@ -61,6 +64,12 @@ app = FastAPI(
     version     = "1.0.0",
     lifespan    = lifespan,
 )
+
+# ── Rate limiting (slowapi) ───────────────────────────────────────────────────
+# Decorator-based only (@limiter.limit on selected endpoints) — no global
+# middleware. The default 429 handler returns a generic message (no internals).
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
 # Explicit allow-list from settings. In development we also accept any origin

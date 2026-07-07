@@ -286,6 +286,50 @@ async def test_scream_escalates_severity_over_harmless_nlp(seeded):
 
 
 @pytest.mark.asyncio
+async def test_late_failure_rolls_back_all_pipeline_rows(seeded, monkeypatch):
+    """Atomicity: a failure late in the pipeline (after the Transcript has been
+    flushed, before the Analysis/Alert are committed) must re-raise AND leave
+    no orphan Transcript/Analysis/Alert rows — the whole run rolls back."""
+    import services.processing_pipeline as pp_module
+
+    pipeline = make_pipeline(
+        stt_result={"text": "help me", "language": "en"},
+        nlp_result=nlp_threat(0.2, "low", "normal"),
+    )
+
+    # _max_severity runs after the Transcript flush (is_scream=True path) and
+    # before the Analysis/Alert inserts — a realistic "late" failure point.
+    def boom(a, b):
+        raise RuntimeError("simulated late pipeline failure")
+
+    monkeypatch.setattr(pp_module, "_max_severity", boom)
+
+    with pytest.raises(RuntimeError, match="simulated late pipeline failure"):
+        await pipeline.process_stored_audio(
+            db=seeded.db,
+            audio_bytes=b"fake-wav-bytes",
+            event=seeded.event,
+            clip=seeded.clip,
+            location_id="loc-1",
+            scream_confidence=0.9,
+            is_scream=True,
+        )
+
+    # Rollback proved: nothing from the failed run was persisted
+    assert seeded.db.query(Transcript).count() == 0
+    assert seeded.db.query(Analysis).count() == 0
+    assert seeded.db.query(Alert).count() == 0
+
+    # And nothing was broadcast for the rolled-back run
+    pipeline.ws.broadcast_alert.assert_not_awaited()
+    pipeline.mqtt.publish_alert.assert_not_called()
+
+    # Pre-existing rows (committed by the caller) survive the rollback
+    assert seeded.db.query(Event).count() == 1
+    assert seeded.db.query(AudioClip).count() == 1
+
+
+@pytest.mark.asyncio
 async def test_no_scream_no_blending_of_scream_confidence(seeded):
     """is_scream=False: the scream confidence must NOT inflate the score."""
     pipeline = make_pipeline(

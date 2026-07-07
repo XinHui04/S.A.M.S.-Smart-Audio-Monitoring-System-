@@ -15,7 +15,7 @@ import logging
 from datetime import datetime, timedelta
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from config.settings import get_settings
@@ -23,6 +23,7 @@ from models.database import User
 from models.schemas import LoginRequest, TokenResponse
 from api.dependencies import get_db, get_current_user
 from utils.auth import verify_password
+from utils.rate_limit import limiter
 
 router = APIRouter(prefix="/api/auth", tags=["Auth"])
 logger = logging.getLogger(__name__)
@@ -38,7 +39,8 @@ def _user_out(user: User) -> dict:
 
 
 @router.post("/login", response_model=TokenResponse, summary="Staff/admin login — returns a JWT")
-async def login(body: LoginRequest, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")   # brute-force protection — per client IP
+async def login(request: Request, body: LoginRequest, db: Session = Depends(get_db)):
     cfg = get_settings()
     if not cfg.jwt_secret_key:
         logger.error("Login attempted but JWT_SECRET_KEY is not configured — set it in .env")

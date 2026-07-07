@@ -72,8 +72,10 @@ from utils.auth import hash_password       # noqa: E402
 # very same cached object we configured (auth guards read deps.cfg directly).
 assert deps.cfg is _settings
 
-ADMIN_EMAIL, ADMIN_PASSWORD = "admin@test.local", "Admin@1234"
-STAFF_EMAIL, STAFF_PASSWORD = "staff@test.local", "Staff@1234"
+# NOTE: LoginRequest.email is EmailStr — email-validator rejects special-use
+# domains like ".local", so the test users live on a plain .com domain.
+ADMIN_EMAIL, ADMIN_PASSWORD = "admin@sams-test.com", "Admin@1234"
+STAFF_EMAIL, STAFF_PASSWORD = "staff@sams-test.com", "Staff@1234"
 
 # bcrypt is slow — hash once for the whole module.
 _ADMIN_HASH = hash_password(ADMIN_PASSWORD)
@@ -161,7 +163,7 @@ def test_login_success_admin(client):
 
 def test_login_wrong_password_and_unknown_email_same_detail(client):
     wrong_pw = login(client, ADMIN_EMAIL, "not-the-password")
-    unknown  = login(client, "nobody@test.local", "whatever123")
+    unknown  = login(client, "nobody@sams-test.com", "whatever123")
 
     assert wrong_pw.status_code == 401
     assert unknown.status_code == 401
