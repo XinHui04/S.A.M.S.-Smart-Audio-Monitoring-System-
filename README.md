@@ -460,7 +460,7 @@ MQTT sams/alerts                 same alert payload (when MQTT_ENABLED=true)
 
 | Symptom | Fix |
 |---|---|
-| Login returns 503 "Authentication not configured" | `JWT_SECRET_KEY` missing in `.env` (§3.2). |
+| Server exits at startup: "JWT_SECRET_KEY is not configured" | Set `JWT_SECRET_KEY` in `.env` (§3.2), then restart. |
 | API calls return 401 / dashboard bounces to login | Token expired (8 h) or missing — sign in again. |
 | Phone can't load `…:8000/m/` | Same Wi-Fi as the PC? Server started with `--host 0.0.0.0`? Firewall rule added (§5.3)? |
 | Dashboard dot stuck on "Connecting…" | Backend not running, or opened from a different host than `localhost`. |

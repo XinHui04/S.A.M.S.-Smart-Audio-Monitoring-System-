@@ -104,20 +104,6 @@ def get_audio_storage() -> AudioStorageService:
 _logger = logging.getLogger(__name__)
 _bearer = HTTPBearer(auto_error=False)   # we raise our own 401 (consistent detail)
 
-_warned_auth_unconfigured = False
-
-
-def _warn_unconfigured_once():
-    """Log (once) that auth is disabled because JWT_SECRET_KEY is not set."""
-    global _warned_auth_unconfigured
-    if not _warned_auth_unconfigured:
-        _logger.warning(
-            "JWT_SECRET_KEY is not set — auth is DISABLED and all protected "
-            "endpoints allow anonymous access. Set JWT_SECRET_KEY in .env."
-        )
-        _warned_auth_unconfigured = True
-
-
 def resolve_token_user(token: str, db: Session) -> Optional[User]:
     """
     Decode a JWT and load the matching User row, or return None if the token
@@ -139,12 +125,11 @@ def resolve_token_user(token: str, db: Session) -> Optional[User]:
 
 def _authenticate(token: Optional[str], db: Session) -> Optional[User]:
     """Validate a bearer token and return the DB User. Raises 401 on failure."""
-    # Unconfigured dev setup: JWT_SECRET_KEY empty → allow anonymous access
-    # (returns None) so the demo still works before .env is configured.
-    # Endpoints must therefore tolerate user being None.
+    # Fail closed: without a signing secret no token can be validated.
+    # main.py refuses to start in this state; this guard covers direct
+    # imports (e.g. test harnesses that skip the lifespan).
     if not cfg.jwt_secret_key:
-        _warn_unconfigured_once()
-        return None
+        raise HTTPException(503, "Authentication not configured")
 
     if not token:
         raise HTTPException(401, "Not authenticated", headers={"WWW-Authenticate": "Bearer"})
@@ -183,8 +168,9 @@ def get_current_user_query_ok(
 
 
 def require_admin(user: Optional[User] = Depends(get_current_user)) -> Optional[User]:
-    """Restrict an endpoint to admins (403 otherwise)."""
-    if user is not None and user.role != "admin":
+    """Restrict an endpoint to admins (403 otherwise); never passes an
+    unauthenticated user."""
+    if user is None or user.role != "admin":
         raise HTTPException(403, "Admin access required")
     return user
 

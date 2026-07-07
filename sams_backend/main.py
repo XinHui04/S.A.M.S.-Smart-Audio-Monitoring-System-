@@ -38,6 +38,13 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("=== S.A.M.S. Cloud Backend starting ===")
+    if not settings.jwt_secret_key:
+        logger.critical(
+            "JWT_SECRET_KEY is not set — refusing to start. Generate one with:\n"
+            '  python -c "import secrets; print(secrets.token_hex(32))"\n'
+            "and set it in sams_backend/.env (see .env.example)."
+        )
+        raise RuntimeError("JWT_SECRET_KEY is not configured")
     logger.info(f"STT  : Groq Whisper Large v3 ({'API key set' if settings.groq_api_key else 'NO API KEY — transcription disabled'})")
     logger.info(f"NLP  : {settings.nlp_model}")
     logger.info(f"Threshold : {settings.threat_score_threshold}")
@@ -81,37 +88,34 @@ async def dashboard_ws(websocket: WebSocket):
 
     Auth (FR23): the browser passes its JWT as ?token=<jwt> (WebSocket clients
     can't set Authorization headers). Invalid/missing token → closed with 4401
-    before the handshake is accepted. If JWT_SECRET_KEY is unconfigured the
-    connection is allowed (demo mode) with a warning.
+    before the handshake is accepted. The server refuses to start without
+    JWT_SECRET_KEY (see lifespan), so this token check always applies.
     """
     user_info = None   # None = unrestricted (FR16 fail-open, dev mode)
-    if settings.jwt_secret_key:
-        token = websocket.query_params.get("token")
-        db = _SessionFactory()
-        try:
-            user = resolve_token_user(token, db)
-            if user is not None:
-                # FR16: load this user's location assignments for alert routing.
-                # No rows / empty list = unrestricted (fail-open — missing
-                # config must never hide a safety incident).
-                location_ids = [
-                    row.location_id
-                    for row in db.query(StaffLocation)
-                                 .filter(StaffLocation.user_id == user.user_id)
-                                 .all()
-                ]
-                user_info = {
-                    "user_id":      user.user_id,
-                    "role":         user.role,
-                    "location_ids": location_ids,
-                }
-        finally:
-            db.close()
-        if user is None:
-            await websocket.close(code=4401)   # reject before accepting
-            return
-    else:
-        logger.warning("/ws/dashboard: JWT_SECRET_KEY not set — accepting unauthenticated connection (demo mode)")
+    token = websocket.query_params.get("token")
+    db = _SessionFactory()
+    try:
+        user = resolve_token_user(token, db)
+        if user is not None:
+            # FR16: load this user's location assignments for alert routing.
+            # No rows / empty list = unrestricted (fail-open — missing
+            # config must never hide a safety incident).
+            location_ids = [
+                row.location_id
+                for row in db.query(StaffLocation)
+                             .filter(StaffLocation.user_id == user.user_id)
+                             .all()
+            ]
+            user_info = {
+                "user_id":      user.user_id,
+                "role":         user.role,
+                "location_ids": location_ids,
+            }
+    finally:
+        db.close()
+    if user is None:
+        await websocket.close(code=4401)   # reject before accepting
+        return
 
     mgr = get_ws_manager()
     await mgr.connect(websocket, user_info=user_info)
