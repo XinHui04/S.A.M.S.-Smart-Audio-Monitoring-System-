@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+sams_iot/secrets.h
 
 # Python
 __pycache__/

@@ -9,23 +9,23 @@
 #include <WiFi.h> 
 #include <WiFiClientSecure.h>
 #include "esp_wifi.h" 
-#include "esp_bt.h" 
+#include "esp_bt.h"
+
+#include "secrets.h"   // WiFi + backend + Supabase credentials (gitignored)
 
 // ── WiFi Configuration ──────────────────────────────────────────────────
-const char* wifi_ssid = "";
-const char* wifi_password = "";
+const char* wifi_ssid = WIFI_SSID;
+const char* wifi_password = WIFI_PASSWORD;
 WiFiClient espClient;
-bool ledwifi_state = false; 
+bool ledwifi_state = false;
 
 // ── Backend server (FastAPI) ─────────────────────────────────────────
-#define SERVER_IP        "192.168.0.7"          // needs to reconfigure everytime before upload 
-#define SERVER_PORT      8000
+// SERVER_IP / SERVER_PORT come from secrets.h (reconfigure before each upload)
 #define NOTIFY_ENDPOINT "/api/events/audio"     // backend receives metadata + Supabase path
 
 // ── Supabase Storage (HTTPS) ──────────────────────────────────────────────
-#define SUPABASE_HOST    "lljkntrbthoycllpeckq.supabase.co"
+// SUPABASE_HOST / SUPABASE_KEY come from secrets.h
 #define SUPABASE_BUCKET  "audio-clips"
-#define SUPABASE_KEY     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxsamtudHJidGhveWNsbHBlY2txIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MjI2Mzg0MSwiZXhwIjoyMDk3ODM5ODQxfQ.-mOZpwV74iChOt8bOFHr56uATPl0htfJrGRI4-clmOw"
 
 // ── Device identity ─────────────────────────────────────────────────────────
 #define DEVICE_ID        "esp32-001"

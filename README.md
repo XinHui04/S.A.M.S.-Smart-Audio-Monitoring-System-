@@ -482,6 +482,21 @@ MQTT sams/alerts                 same alert payload (when MQTT_ENABLED=true)
 - **Transport security:** the hardening path (HTTPS/WSS/MQTTS) is documented
   in §6.1, but the LAN demo still runs plain `http://` / `ws://` / `mqtt://`
   by default — encrypting all three needs a TLS-terminating deploy.
+- **Firmware credentials (`sams_iot/secrets.h`):** the ESP32 sketch no longer
+  hardcodes WiFi/Supabase credentials. Copy `sams_iot/secrets.h.example` to
+  `sams_iot/secrets.h` (gitignored) and fill in your values before flashing.
+  Use the Supabase **anon** key on the device — never the `service_role` key —
+  and scope it to upload-only with this storage policy (Supabase SQL editor):
+
+  ```sql
+  create policy "device upload only"
+  on storage.objects for insert to anon
+  with check (bucket_id = 'audio-clips');
+  ```
+
+  If a `service_role` key was ever committed to git history, rotate it
+  (Supabase Dashboard → Project Settings → API → reset JWT secret) and update
+  the backend `.env` with the new key.
 - **Edge integration:** real ESP32-C3 + INMP441 device (teammate's module)
   uploads to Supabase then notifies `/api/events/audio` — the backend
   auto-registers devices. When `DEVICE_API_KEY` is enabled, the firmware must
