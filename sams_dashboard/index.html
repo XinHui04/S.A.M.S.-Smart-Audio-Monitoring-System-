@@ -25,6 +25,8 @@
     --teal-dim:      #0d2b18;
     --blue:          #58a6ff;
     --blue-dim:      #0d2149;
+    --purple:        #bc8cff;
+    --purple-dim:    #1e1040;
 
     --font-ui:   'Inter', system-ui, sans-serif;
     --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
@@ -83,6 +85,30 @@
     color: var(--text-secondary); min-width: 80px; text-align: right;
   }
 
+  /* ── Nav tabs (page switcher) ────────────────────────────────────────────── */
+  .nav-tabs {
+    display: flex; gap: 2px; margin-left: 16px;
+  }
+  .nav-tab {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 14px; border-radius: var(--radius);
+    font-size: 13px; font-weight: 500; cursor: pointer;
+    color: var(--text-secondary); border: none; background: none;
+    transition: all 0.15s;
+  }
+  .nav-tab:hover  { background: var(--bg-hover); color: var(--text-primary); }
+  .nav-tab.active { background: var(--bg-elevated); color: var(--amber); }
+  .nav-tab .badge {
+    font-size: 10px; font-family: var(--font-mono);
+    background: var(--red-dim); color: var(--red);
+    padding: 1px 5px; border-radius: 10px; font-weight: 600;
+  }
+  .nav-tab.scream-tab .badge { background: var(--red-dim); color: var(--red); }
+
+  /* ── Pages ───────────────────────────────────────────────────────────────── */
+  .page { display: none; height: 100%; }
+  .page.active { display: grid; grid-template-columns: 300px 1fr; overflow: hidden; height: 100%; }
+
   /* ── Main content ────────────────────────────────────────────────────────── */
   .main { display: grid; grid-template-columns: 300px 1fr; overflow: hidden; }
 
@@ -108,6 +134,14 @@
   .sidebar-tab:hover  { color: var(--text-primary); background: var(--bg-hover); }
   .sidebar-tab.active { color: var(--amber); border-bottom-color: var(--amber); }
 
+  .sidebar-header {
+    padding: 12px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  .sidebar-header h3 {
+    font-size: 13px; font-weight: 500; color: var(--text-secondary);
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+
   .sidebar-list { flex: 1; overflow-y: auto; padding: 8px; }
   .sidebar-list::-webkit-scrollbar { width: 4px; }
   .sidebar-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
@@ -131,6 +165,7 @@
   .alert-card.high::before   { background: var(--red); }
   .alert-card.medium::before { background: var(--amber); }
   .alert-card.low::before    { background: var(--teal); }
+  .alert-card.no-scream::before { background: var(--text-muted); }
   .alert-card:hover  { background: var(--bg-hover); border-color: var(--border); }
   .alert-card.active { background: var(--bg-elevated); border-color: var(--border); }
 
@@ -144,6 +179,8 @@
   .sev-badge.high   { background: var(--red-dim);   color: var(--red);   }
   .sev-badge.medium { background: var(--amber-dim);  color: var(--amber); }
   .sev-badge.low    { background: var(--teal-dim);   color: var(--teal);  }
+  .sev-badge.no-scream{ background: var(--bg-elevated);color: var(--text-muted); }
+  .sev-badge.scream   { background: var(--red-dim);    color: var(--red);   }
 
   .alert-card-location {
     font-size: 13px; font-weight: 500; flex: 1;
@@ -163,6 +200,7 @@
   }
   .alert-card-status.resolved { color: var(--teal); }
   .alert-card-status.acknowledged { color: var(--amber); }
+  .alert-card-details  { display: flex; gap: 10px; font-size: 11px; color: var(--text-muted); margin-top: 4px; font-family: var(--font-mono); }
 
   /* ── Detail panel ────────────────────────────────────────────────────────── */
   .detail { display: flex; flex-direction: column; overflow: hidden; }
@@ -192,6 +230,7 @@
   .stat-value.amber  { color: var(--amber); }
   .stat-value.teal   { color: var(--teal);  }
   .stat-value.blue   { color: var(--blue);  }
+  .stat-value.purple { color: var(--purple);}
 
   /* ── Detail content ──────────────────────────────────────────────────────── */
   .detail-content {
@@ -234,6 +273,7 @@
   .score-bar-fill.high   { background: var(--red);   }
   .score-bar-fill.medium { background: var(--amber);  }
   .score-bar-fill.low    { background: var(--teal);   }
+  .score-bar-fill.purple { background: var(--purple); }
   .score-value {
     font-family: var(--font-mono); font-size: 14px; font-weight: 500;
     min-width: 40px; text-align: right;
@@ -373,6 +413,8 @@
   .toast.high   { border-left: 3px solid var(--red);   }
   .toast.medium { border-left: 3px solid var(--amber);  }
   .toast.low    { border-left: 3px solid var(--teal);   }
+  .toast.scream { border-left: 3px solid var(--red); }
+  .toast.error  { border-left: 3px solid var(--red); }
   @keyframes slide-in {
     from { transform: translateX(20px); opacity: 0; }
     to   { transform: translateX(0);    opacity: 1; }
@@ -489,6 +531,7 @@
   }
   .filter-btn:hover  { border-color: var(--amber); color: var(--amber); }
   .filter-btn.active { background: var(--amber-dim); border-color: var(--amber); color: var(--amber); }
+  .filter-btn.scream-active { background: var(--red-dim); border-color: var(--red); color: var(--red); }
 
   .empty-state {
     padding: 32px 16px; text-align: center;
@@ -497,6 +540,8 @@
 
   /* ── Detail grid sections ────────────────────────────────────────────────── */
   .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+  .detail-grid.thirds { grid-template-columns: 1fr 1fr 1fr; }
+  .analysis-box { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px; margin-top: 8px; margin-bottom: 16px; }
   .detail-field { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; }
   .field-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 2px; }
   .field-value { font-size: 13px; color: var(--text-primary); font-family: var(--font-mono); }
@@ -601,6 +646,19 @@
       S.A.M.S.
       <span class="sub">Smart Audio Monitoring System</span>
     </div>
+
+    <!-- Page nav tabs -->
+    <nav class="nav-tabs">
+      <button class="nav-tab active" onclick="switchPage('alerts', this)">
+        🚨 Alerts
+        <span class="badge" id="alert-nav-badge"></span>
+      </button>
+      <button class="nav-tab scream-tab" onclick="switchPage('scream', this)">
+        🔴 Scream Events
+        <span class="badge" id="scream-nav-badge">0</span>
+      </button>
+    </nav>
+
     <div class="topbar-spacer"></div>
     <div class="user-chip" id="user-chip" style="display:none">
       <span class="user-name" id="user-name"></span>
@@ -614,8 +672,11 @@
     <div class="topbar-time" id="clock"></div>
   </header>
 
-  <!-- ── Main ───────────────────────────────────────────────────────────── -->
-  <div class="main">
+  <!-- ── Pages container ────────────────────────────────────────────────── -->
+  <div style="overflow:hidden; height:100%;">
+
+  <!-- ── Page 1: Alerts ─────────────────────────────────────────────────── -->
+  <div class="page active" id="page-alerts">
 
     <!-- ── Sidebar ──────────────────────────────────────────────────────── -->
     <aside class="sidebar">
@@ -691,7 +752,49 @@
       </div>
 
     </section>
-  </div>
+  </div><!-- end page-alerts -->
+
+  <!-- ── Page 2: Scream Events ──────────────────────────────────────────── -->
+  <div class="page" id="page-scream">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h3>🔴 Scream Detection Events</h3>
+      </div>
+
+      <!-- Filter bar: Screams only / All events -->
+      <div class="filters">
+        <button class="filter-btn scream-active" id="scream-filter-scream" onclick="setScreamFilter('scream')">🔴 Screams Only</button>
+        <button class="filter-btn" id="scream-filter-all" onclick="setScreamFilter('all')">All Events</button>
+      </div>
+
+      <div class="sidebar-list" id="scream-list">
+        <div class="empty-state">Loading events…</div>
+      </div>
+    </aside>
+
+    <!-- Detail panel -->
+    <section class="detail">
+      <div class="stats-strip" style="grid-template-columns:repeat(4,1fr)">
+        <div class="stat-cell"><div class="stat-label">Total Events</div><div class="stat-value blue" id="scream-stat-total">—</div></div>
+        <div class="stat-cell"><div class="stat-label">Screams Detected</div><div class="stat-value red" id="scream-stat-screams">—</div></div>
+        <div class="stat-cell"><div class="stat-label">High Confidence</div><div class="stat-value amber" id="scream-stat-high">—</div></div>
+        <div class="stat-cell"><div class="stat-label">No Scream</div><div class="stat-value teal" id="scream-stat-noscream">—</div></div>
+      </div>
+      <div class="detail-content" id="scream-detail-panel">
+        <div class="detail-empty">
+          <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+          </svg>
+          <p>Select an event to view scream detection details</p>
+        </div>
+      </div>
+    </section>
+  </div><!-- end page-scream -->
+
+  </div><!-- end pages container -->
 </div>
 
 <!-- Toast container -->
@@ -740,6 +843,12 @@ let ws           = null;
 let currentAudio = null;
 let appStarted   = false;   // intervals set up only once
 let wsHeartbeat  = null;
+
+let allEvents       = [];
+let selectedEventId = null;
+let screamFilter    = 'scream';   // 'scream' | 'all'
+let lastEventCount  = 0;
+let currentPage     = 'alerts';
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 const TOKEN_KEY = 'sams_token';
@@ -808,10 +917,12 @@ function startApp() {
   connectWS();
   loadAlerts();
   loadStats();
+  loadScreamEvents();
   if (!appStarted) {
     appStarted = true;
     setInterval(() => { if (getToken()) loadAlerts(); }, 30000);
     setInterval(() => { if (getToken()) loadStats();  }, 15000);
+    setInterval(() => { if (getToken()) loadScreamEvents(true); }, 5000);
   }
 }
 
@@ -919,6 +1030,8 @@ function handleIncomingAlert(msg) {
     showToast(msg);
     playAlertSound(msg.severity);
   }
+  // Refresh scream events in the background
+  if (getToken()) loadScreamEvents(true);
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
@@ -983,6 +1096,8 @@ async function loadStats() {
       (data.active_alerts || 0) + (data.acknowledged_alerts || 0) + (data.resolved_alerts || 0);
     document.getElementById('alert-count-badge').textContent =
       data.active_alerts > 0 ? ` (${data.active_alerts})` : '';
+    document.getElementById('alert-nav-badge').textContent =
+      data.active_alerts > 0 ? data.active_alerts : '';
   } catch(_) {}
 }
 
@@ -1178,6 +1293,9 @@ function audioUrlWithToken(audioUrl) {
 
 // ── Audio playback ─────────────────────────────────────────────────────────────
 async function toggleAudio(url, btn) {
+  // Duration readout lives inside the same player as the clicked button
+  // (the alerts and scream pages each have their own player)
+  const timeEl = btn.closest('.audio-player')?.querySelector('.audio-duration');
   if (currentAudio && !currentAudio.paused) {
     currentAudio.pause();
     btn.innerHTML = `<svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M11.596 8.697L4.604 12.5A.5.5 0 0 1 4 12V4a.5.5 0 0 1 .604-.5l6.992 3.803a.5.5 0 0 1 0 .894z"/></svg>`;
@@ -1186,18 +1304,322 @@ async function toggleAudio(url, btn) {
   if (!currentAudio || currentAudio.src !== url) {
     currentAudio = new Audio(url);
     currentAudio.ontimeupdate = () => {
+      if (!timeEl) return;
       const t = currentAudio.currentTime;
-      document.getElementById('audio-time').textContent =
+      timeEl.textContent =
         `${Math.floor(t/60)}:${String(Math.floor(t%60)).padStart(2,'0')}`;
     };
     currentAudio.onended = () => {
       btn.innerHTML = `<svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M11.596 8.697L4.604 12.5A.5.5 0 0 1 4 12V4a.5.5 0 0 1 .604-.5l6.992 3.803a.5.5 0 0 1 0 .894z"/></svg>`;
-      document.getElementById('audio-time').textContent = '0:00';
+      if (timeEl) timeEl.textContent = '0:00';
     };
   }
   await currentAudio.play();
   btn.innerHTML = `<svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M5.5 3.5A1.5 1.5 0 0 1 7 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5m5 0A1.5 1.5 0 0 1 12 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5"/></svg>`;
 }
+
+// ── Page switching ─────────────────────────────────────────────────────────────
+function switchPage(page, el) {
+  currentPage = page;
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-' + page).classList.add('active');
+  if (page === 'scream') loadScreamEvents();
+}
+
+// ── Scream events page ─────────────────────────────────────────────────────────
+function setScreamFilter(val) {
+  screamFilter = val;
+  document.getElementById('scream-filter-scream').className =
+    'filter-btn' + (val === 'scream' ? ' scream-active' : '');
+  document.getElementById('scream-filter-all').className =
+    'filter-btn' + (val === 'all' ? ' active' : '');
+  renderScreamList();
+}
+
+async function loadScreamEvents(silent = false) {
+  try {
+    const res  = await authFetch(`${API}/api/events/all`);
+    const data = await res.json();
+
+    if (data.events && data.events.length > 0) {
+      allEvents = data.events.map(ev => ({
+        id:         ev.id || ev.event_id,
+        device_id:  ev.device_id || 'Unknown',
+        location:   ev.location_id || ev.location_name || 'Unknown',
+        timestamp:  ev.timestamp,
+        intensity:  ev.intensity  || 0,
+        pitch:      ev.pitch      || 0,
+        confidence: ev.confidence_score || 0,
+        audio_url:  ev.audio_url  || null,
+        isScream:   ev.is_scream !== undefined ? ev.is_scream : false,
+        severity:   (ev.confidence_score||0) > 0.9 ? 'high'
+                  : (ev.confidence_score||0) > 0.8 ? 'medium' : 'low',
+        duration:   ev.duration || null,
+      }));
+      allEvents.sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+      renderScreamList();
+      updateScreamStats();
+      updateScreamBadge();
+
+      // Duration fallback for events the API returned without one
+      const stillMissing = allEvents.filter(e => e.audio_url && e.duration === null);
+      if (stillMissing.length > 0) setTimeout(() => preloadAllAudioDurations(), 500);
+
+      // Toast for brand-new scream events
+      if (!silent && allEvents.length > lastEventCount && lastEventCount > 0) {
+        const newest = allEvents[0];
+        if (newest.isScream) {
+          showToast({
+            severity: 'scream',
+            location_name: newest.location,
+            transcript: `Scream detected — confidence ${(newest.confidence * 100).toFixed(0)}%`,
+          });
+          playAlertSound('high');
+        }
+      }
+      if (allEvents.length > lastEventCount) lastEventCount = allEvents.length;
+
+      // Auto-select first if none selected
+      if (!selectedEventId && allEvents.length > 0) selectScream(allEvents[0].id);
+
+    } else {
+      document.getElementById('scream-list').innerHTML =
+        '<div class="empty-state">No events recorded yet</div>';
+    }
+  } catch(e) {
+    if (e && e.message === 'Unauthorized') return;
+    if (!silent)
+      document.getElementById('scream-list').innerHTML =
+        '<div class="empty-state">Cannot connect to backend</div>';
+  }
+}
+
+function renderScreamList() {
+  const list = document.getElementById('scream-list');
+  let display = [...allEvents];
+
+  if (screamFilter === 'scream') display = display.filter(e => e.isScream);
+
+  if (!display.length) {
+    list.innerHTML = screamFilter === 'scream'
+      ? '<div class="empty-state">No scream events detected yet<br><small style="color:var(--text-muted);font-size:11px">Switch to "All Events" to see all audio captures</small></div>'
+      : '<div class="empty-state">No events recorded yet</div>';
+    return;
+  }
+
+  list.innerHTML = display.map(e => `
+    <div class="alert-card ${e.isScream ? e.severity : 'no-scream'} ${String(selectedEventId) === String(e.id) ? 'active' : ''}"
+         data-id="${escHtml(String(e.id))}">
+      <div class="alert-card-top">
+        <span class="sev-badge ${e.isScream ? 'scream' : 'no-scream'}">
+          ${e.isScream ? '🔴 SCREAM' : '⚪ NO SCREAM'}
+        </span>
+        <span class="alert-card-location">📍 ${escHtml(e.location)}</span>
+        <span class="alert-card-time">${formatTime(e.timestamp)}</span>
+      </div>
+      <div class="alert-card-details">
+        <span>🔊 ${Number(e.intensity).toFixed(1)} dB</span>
+        <span>🎵 ${Number(e.pitch).toFixed(0)} Hz</span>
+        <span>📊 ${(e.confidence*100).toFixed(0)}%</span>
+        ${e.duration > 0  ? `<span>⏱ ${e.duration.toFixed(1)}s</span>`
+        : e.duration === null && e.audio_url ? `<span style="color:var(--text-muted)">⏱ …</span>`
+        : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+function selectScream(id) {
+  selectedEventId = id;
+  renderScreamList();
+  const ev = allEvents.find(e => String(e.id) === String(id));
+  if (ev) renderScreamDetail(ev);
+}
+
+function renderScreamDetail(ev) {
+  const confPct   = (ev.confidence * 100).toFixed(0);
+  const isScream  = ev.isScream;
+  const sevClass  = isScream ? ev.severity : 'low';
+  const fillClass = isScream ? ev.severity : 'low';
+
+  // Show duration if pre-loaded
+  let durationDisplay = '0:00';
+  if (ev.duration > 0) {
+    const total = ev.duration;
+    durationDisplay = `0:00 / ${Math.floor(total/60)}:${String(Math.floor(total%60)).padStart(2,'0')}`;
+  } else if (ev.duration === null && ev.audio_url) {
+    durationDisplay = 'Loading…';   // still fetching
+  } else if (ev.duration === -1) {
+    durationDisplay = '—';
+  }
+
+  const panel = document.getElementById('scream-detail-panel');
+  panel.innerHTML = `
+    <div class="detail-header">
+      <div>
+        <div class="detail-title">
+          ${isScream ? '🔴' : '⚪'} ${escHtml(ev.location)}
+        </div>
+        <div class="detail-meta">
+          <span class="sev-badge ${isScream ? sevClass : 'no-scream'}">
+            ${isScream ? 'SCREAM DETECTED' : 'NO SCREAM'}
+          </span>
+          <span class="meta-pill">${formatDateTime(ev.timestamp)}</span>
+          <span class="meta-pill">Device: ${escHtml(ev.device_id)}</span>
+          ${ev.duration && ev.duration > 0 ? `<span class="meta-pill">⏱ ${ev.duration.toFixed(1)}s</span>` : ''}
+        </div>
+      </div>
+    </div>
+
+    <div class="score-section">
+      <div class="score-label">Scream Detection Confidence</div>
+      <div class="score-row">
+        <div class="score-bar-track">
+          <div class="score-bar-fill ${fillClass}" style="width:${confPct}%"></div>
+        </div>
+        <div class="score-value" style="color:var(--${isScream?(sevClass==='high'?'red':sevClass==='medium'?'amber':'teal'):'text-muted'})">${confPct}%</div>
+      </div>
+    </div>
+
+    <div class="detail-grid thirds">
+      <div class="detail-field">
+        <div class="field-label">Intensity</div>
+        <div class="field-value">${Number(ev.intensity).toFixed(1)} dB</div>
+      </div>
+      <div class="detail-field">
+        <div class="field-label">Pitch Frequency</div>
+        <div class="field-value">${Number(ev.pitch).toFixed(0)} Hz</div>
+      </div>
+      <div class="detail-field">
+        <div class="field-label">Event ID</div>
+        <div class="field-value" style="font-size:11px;color:var(--text-muted)">${escHtml(String(ev.id).substring(0,8))}…</div>
+      </div>
+    </div>
+
+    <div class="analysis-box">
+      <div class="box-label">Analysis Summary</div>
+      <div class="detail-grid thirds" style="margin-bottom:0;">
+        <div>
+          <div class="field-label" style="margin-bottom:4px;">Classification</div>
+          <div style="font-size:15px;font-weight:600;color:${isScream?'var(--red)':'var(--text-secondary)'}">
+            ${isScream ? '🔴 SCREAM' : '⚪ NORMAL'}
+          </div>
+        </div>
+        <div>
+          <div class="field-label" style="margin-bottom:4px;">Confidence</div>
+          <div style="font-size:15px;font-weight:600;">${confPct}%</div>
+        </div>
+        <div>
+          <div class="field-label" style="margin-bottom:4px;">Severity</div>
+          <div style="font-size:15px;font-weight:600;text-transform:uppercase;color:var(--${isScream?(sevClass==='high'?'red':sevClass==='medium'?'amber':'teal'):'text-muted'})">
+            ${isScream ? sevClass : '—'}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    ${ev.audio_url ? `
+    <div class="audio-section">
+      <div class="audio-player">
+        <button class="audio-play-btn" title="Play audio">
+          <svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+            <path d="M11.596 8.697L4.604 12.5A.5.5 0 0 1 4 12V4a.5.5 0 0 1 .604-.5l6.992 3.803a.5.5 0 0 1 0 .894z"/>
+          </svg>
+        </button>
+        <div class="audio-waveform">
+          ${Array.from({length:40},(_,i)=>`<div class="wave-bar" style="height:${8+Math.sin(i*0.7)*8+Math.random()*8}px"></div>`).join('')}
+        </div>
+        <div class="audio-duration" id="audio-time-scream">${durationDisplay}</div>
+      </div>
+    </div>
+    ` : '<div style="padding:12px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-muted);font-size:12px;margin-bottom:16px;">No audio clip available for this event</div>'}
+  `;
+
+  // Bind playback after render — no inline handlers with interpolated URLs
+  const playBtn = panel.querySelector('.audio-play-btn');
+  if (playBtn && ev.audio_url) {
+    playBtn.addEventListener('click', () => toggleAudio(audioUrlWithToken(ev.audio_url), playBtn));
+  }
+}
+
+// Duration fallback: probe audio metadata for events the API returned without
+// a duration (max 5 at a time to avoid hammering the server)
+async function preloadAllAudioDurations() {
+  const pending = allEvents.filter(e => e.audio_url && e.duration === null);
+  if (!pending.length) return;
+
+  const batch = pending.slice(0, 5);
+  await Promise.allSettled(batch.map(ev => new Promise((resolve) => {
+    const audio = new Audio();
+    const timeout = setTimeout(() => {
+      audio.src = '';
+      ev.duration = -1;   // give up after 5s
+      resolve();
+    }, 5000);
+
+    audio.onloadedmetadata = () => {
+      clearTimeout(timeout);
+      ev.duration = isFinite(audio.duration) ? audio.duration : -1;
+      audio.src = '';     // unload immediately — stops the download
+      resolve();
+    };
+
+    audio.onerror = () => {
+      clearTimeout(timeout);
+      ev.duration = -1;
+      audio.src = '';
+      resolve();
+    };
+
+    audio.preload = 'metadata';   // only fetch enough to get duration
+    audio.src = audioUrlWithToken(ev.audio_url);
+  })));
+
+  renderScreamList();
+  const selected = allEvents.find(e => String(e.id) === String(selectedEventId));
+  if (selected && selected.duration != null) renderScreamDetail(selected);
+}
+
+function updateDurationDisplay(ev) {
+  const timeEl = document.getElementById('audio-time-scream');
+  if (!timeEl) return;
+
+  if (ev.duration && ev.duration > 0) {
+    const total = ev.duration;
+    timeEl.textContent = `0:00 / ${Math.floor(total/60)}:${String(Math.floor(total%60)).padStart(2,'0')}`;
+  } else if (ev.duration === -1) {
+    timeEl.textContent = 'Unavailable';
+    timeEl.style.color = 'var(--red)';
+  } else {
+    timeEl.textContent = '0:00';
+  }
+}
+
+function updateScreamStats() {
+  const total    = allEvents.length;
+  const screams  = allEvents.filter(e => e.isScream).length;
+  const high     = allEvents.filter(e => e.isScream && e.confidence > 0.7).length;
+  const noScream = allEvents.filter(e => !e.isScream).length;
+
+  document.getElementById('scream-stat-total').textContent   = total;
+  document.getElementById('scream-stat-screams').textContent = screams;
+  document.getElementById('scream-stat-high').textContent    = high;
+  document.getElementById('scream-stat-noscream').textContent= noScream;
+}
+
+function updateScreamBadge() {
+  const count = allEvents.filter(e => e.isScream).length;
+  document.getElementById('scream-nav-badge').textContent = count;
+}
+
+// Delegated click handler for scream event cards (cards carry data-id only)
+document.getElementById('scream-list').addEventListener('click', (e) => {
+  const card = e.target.closest('.alert-card[data-id]');
+  if (card) selectScream(card.dataset.id);
+});
 
 // ── Acknowledge alert ──────────────────────────────────────────────────────────
 async function acknowledgeAlert(alertId) {
@@ -1544,7 +1966,8 @@ function switchTab(tab, el) {
 
 // ── Filter ─────────────────────────────────────────────────────────────────────
 function setFilter(val, el) {
-  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  // Scope to the alerts tab so the scream page's filter buttons are untouched
+  document.querySelectorAll('#tab-alerts .filter-btn').forEach(b => b.classList.remove('active'));
   el.classList.add('active');
   if (['active','acknowledged','resolved','all'].includes(val)) { filterStatus = val; filterSev = null; }
   else { filterSev = val; filterStatus = 'all'; }
@@ -1553,7 +1976,7 @@ function setFilter(val, el) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function escHtml(s) {
-  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 const KEYWORDS = ['bodoh','babi','sial','mati','pergi mampus','bangang','stupid','loser','shut up','kill','hurt','go die'];
