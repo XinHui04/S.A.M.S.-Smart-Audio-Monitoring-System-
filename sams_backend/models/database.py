@@ -33,7 +33,7 @@ class Device(Base):
     __tablename__ = "devices"
 
     device_id   = Column(String, primary_key=True, default=generate_id)
-    location_id = Column(String, ForeignKey("locations.location_id"), nullable=False)
+    location_id = Column(String, ForeignKey("locations.location_id"), nullable=False, index=True)
     status      = Column(String, default="online")   # online | offline | error
 
     location = relationship("Location", back_populates="devices")
@@ -53,9 +53,9 @@ class Event(Base):
     __tablename__ = "events"
 
     event_id         = Column(String, primary_key=True, default=generate_id)
-    device_id        = Column(String, ForeignKey("devices.device_id"), nullable=False)
-    report_id        = Column(String, ForeignKey("reports.report_id"), nullable=True)
-    timestamp        = Column(DateTime, default=datetime.utcnow)
+    device_id        = Column(String, ForeignKey("devices.device_id"), nullable=False, index=True)
+    report_id        = Column(String, ForeignKey("reports.report_id"), nullable=True, index=True)
+    timestamp        = Column(DateTime, default=datetime.utcnow, index=True)
     intensity        = Column(Float)     # dB level from edge device
     pitch            = Column(Float)     # Hz
     confidence_score = Column(Float)     # 0.0–1.0 from edge scream classifier
@@ -70,8 +70,8 @@ class AudioClip(Base):
     __tablename__ = "audio_clips"
 
     clip_id  = Column(String, primary_key=True, default=generate_id)
-    event_id = Column(String, ForeignKey("events.event_id"), nullable=False)
-    file_path = Column(String)   # Firebase Storage URL or local path
+    event_id = Column(String, ForeignKey("events.event_id"), nullable=False, index=True)
+    file_path = Column(String, index=True)   # Firebase Storage URL or local path
     duration  = Column(Float)    # seconds
 
     event      = relationship("Event", back_populates="audio_clip")
@@ -82,7 +82,7 @@ class Transcript(Base):
     __tablename__ = "transcripts"
 
     transcript_id = Column(String, primary_key=True, default=generate_id)
-    clip_id       = Column(String, ForeignKey("audio_clips.clip_id"), nullable=False)
+    clip_id       = Column(String, ForeignKey("audio_clips.clip_id"), nullable=False, index=True)
     text          = Column(Text)   # Full transcribed speech text
 
     audio_clip = relationship("AudioClip", back_populates="transcript")
@@ -93,7 +93,7 @@ class Analysis(Base):
     __tablename__ = "analyses"
 
     analysis_id    = Column(String, primary_key=True, default=generate_id)
-    transcript_id  = Column(String, ForeignKey("transcripts.transcript_id"), nullable=False)
+    transcript_id  = Column(String, ForeignKey("transcripts.transcript_id"), nullable=False, index=True)
     severity_level = Column(String)   # low | medium | high
     classification = Column(String)   # verbal_bullying | threat | distress | normal
     threat_score   = Column(Float)    # 0.0–1.0 final NLP confidence
@@ -111,7 +111,7 @@ class EmotionAnalysis(Base):
     __tablename__ = "emotion_analyses"
 
     emotion_id = Column(String, primary_key=True, default=generate_id)
-    event_id   = Column(String, ForeignKey("events.event_id"), nullable=False)
+    event_id   = Column(String, ForeignKey("events.event_id"), nullable=False, index=True)
     emotion    = Column(String)   # angry | happy | neutral | sad | fearful | ...
     confidence = Column(Float)    # 0.0–1.0 top-class score
 
@@ -144,11 +144,11 @@ class Alert(Base):
     __tablename__ = "alerts"
 
     alert_id  = Column(String, primary_key=True, default=generate_id)
-    event_id  = Column(String, ForeignKey("events.event_id"), nullable=False)
-    user_id   = Column(String, ForeignKey("users.user_id"), nullable=True)
+    event_id  = Column(String, ForeignKey("events.event_id"), nullable=False, index=True)
+    user_id   = Column(String, ForeignKey("users.user_id"), nullable=True, index=True)
     severity  = Column(String)          # low | medium | high
-    status    = Column(String, default="active")   # active | resolved
-    created_at = Column(DateTime, default=datetime.utcnow)
+    status    = Column(String, default="active", index=True)   # active | resolved
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
     resolved_at = Column(DateTime, nullable=True)
     resolution_notes = Column(Text, nullable=True)
 

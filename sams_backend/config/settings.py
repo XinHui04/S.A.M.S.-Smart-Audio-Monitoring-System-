@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 480
     device_api_key:              str = ""       # opt-in — when set, ESP32 ingestion endpoints require X-API-Key
 
+    # CORS — comma-separated list of allowed origins for the dashboard/PWA.
+    # In development ("app_env=development") a wildcard is also allowed so the
+    # LAN demo works when the dashboard is opened from any host; in production
+    # set this explicitly (e.g. "https://sams.school.edu.my").
+    cors_allow_origins: str = "http://localhost:8000,http://127.0.0.1:8000,http://localhost:5500,http://127.0.0.1:5500"
+
     # Module 4 — MQTT publisher (real-time alert fan-out; Figs 4.1/4.2)
     # Opt-in: leave mqtt_enabled False to run without a broker.
     mqtt_enabled:     bool = False

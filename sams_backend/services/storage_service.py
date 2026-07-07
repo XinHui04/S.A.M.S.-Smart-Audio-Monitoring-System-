@@ -79,6 +79,25 @@ class AudioStorageService:
         bucket, _, obj = body.partition("/")
         return bucket, obj
 
+    def _safe_local_path(self, file_ref: str) -> Optional[str]:
+        """
+        Resolve file_ref to an absolute path and return it ONLY if it stays
+        inside self.storage_dir. Returns None (with a warning) for any path
+        that escapes the storage directory — blocks '../' traversal and
+        absolute paths supplied by an untrusted device/file_path field.
+        """
+        base = os.path.realpath(self.storage_dir)
+        target = os.path.realpath(file_ref if os.path.isabs(file_ref) else os.path.join(base, file_ref))
+        try:
+            if os.path.commonpath([base, target]) != base:
+                logger.warning(f"Refusing out-of-bounds audio path: {file_ref}")
+                return None
+        except ValueError:
+            # different drives on Windows, etc.
+            logger.warning(f"Refusing invalid audio path: {file_ref}")
+            return None
+        return target
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     def persist(self, local_path: str, event_id: str) -> str:
@@ -100,12 +119,12 @@ class AudioStorageService:
             with open(local_path, "rb") as f:
                 data = f.read()
             client = self._get_client()
-            client.storage.from_(self.bucket).upload(
+            client.storage.from_(self.bucket_name).upload(
                 path=object_key,
                 file=data,
                 file_options={"content-type": "audio/wav", "upsert": "true"},
             )
-            ref = f"{REMOTE_PREFIX}{self.bucket}/{object_key}"
+            ref = f"{REMOTE_PREFIX}{self.bucket_name}/{object_key}"
             logger.info(f"Audio uploaded to Supabase Storage: {ref} ({len(data):,} bytes)")
             return ref
         except Exception as e:
@@ -144,22 +163,24 @@ class AudioStorageService:
                 # Try to fetch from Supabase using the filename
                 try:
                     client = self._get_client()
+                    safe_name = os.path.basename(file_ref)
                     # Try root bucket first
                     try:
-                        return client.storage.from_(self.bucket_name).download(file_ref)
+                        return client.storage.from_(self.bucket_name).download(safe_name)
                     except:
                         # Try incidents folder
-                        return client.storage.from_(self.bucket_name).download(f"incidents/{file_ref}")
+                        return client.storage.from_(self.bucket_name).download(f"incidents/{safe_name}")
                 except Exception as e:
                     logger.warning(f"Could not fetch from Supabase: {e}")
 
                 # return client.storage.from_(bucket).download(obj)
 
             # ── If it's a local file ──────────────────────────────────────────────
-            elif os.path.exists(file_ref):
-                with open(file_ref, "rb") as f:
-                    return f.read()
             else:
+                safe = self._safe_local_path(file_ref)
+                if safe and os.path.exists(safe):
+                    with open(safe, "rb") as f:
+                        return f.read()
                 logger.warning(f"Audio not found: {file_ref}")
                 return None
 

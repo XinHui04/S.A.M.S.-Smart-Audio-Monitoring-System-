@@ -62,13 +62,22 @@ app = FastAPI(
     lifespan    = lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins     = ["*"],
+# ── CORS ──────────────────────────────────────────────────────────────────────
+# Explicit allow-list from settings. In development we also accept any origin
+# (via allow_origin_regex, which — unlike allow_origins=["*"] — is compatible
+# with allow_credentials=True) so the LAN demo works from any host/IP.
+_cors_origins = [o.strip() for o in settings.cors_allow_origins.split(",") if o.strip()]
+_cors_kwargs = dict(
     allow_credentials = True,
     allow_methods     = ["*"],
     allow_headers     = ["*"],
 )
+if settings.app_env == "development":
+    app.add_middleware(CORSMiddleware, allow_origin_regex=".*", **_cors_kwargs)
+    logger.info("CORS: development mode — all origins allowed")
+else:
+    app.add_middleware(CORSMiddleware, allow_origins=_cors_origins, **_cors_kwargs)
+    logger.info(f"CORS: production mode — allowed origins: {_cors_origins}")
 
 # ── REST routes ───────────────────────────────────────────────────────────────
 app.include_router(events_router)

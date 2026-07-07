@@ -199,7 +199,7 @@ async def receive_audio_event(
                 raise ValueError("Downloaded file is empty")
             logger.info(f"[Audio] Downloaded {len(audio_bytes):,} bytes from {supabase_file_path}")
         except Exception as e:
-            logger.error(f"[Audio] Failed to download from Supabase: {e}")
+            logger.exception(f"[Audio] Failed to download from Supabase: {supabase_file_path}")
             # Try with "incidents/" prefix as fallback
             try:
                 audio_bytes = audio_storage.get_bytes(f"supabase://audio-clips/incidents/{supabase_file_path}")
@@ -207,10 +207,10 @@ async def receive_audio_event(
                     raise ValueError("Downloaded file is empty")
                 logger.info(f"[Audio] Downloaded {len(audio_bytes):,} bytes from incidents/{supabase_file_path}")
             except Exception as e2:
-                logger.error(f"[Audio] Both download attempts failed: {e2}")
+                logger.exception(f"[Audio] Both download attempts failed for {supabase_file_path}")
                 return {
-                    "status": "error", 
-                    "message": f"Supabase download error: {str(e)}"
+                    "status": "error",
+                    "message": "Audio download failed"
                 }
         
         # ── Step 2: Run scream analysis ──────────────────────────────────────────
@@ -351,10 +351,8 @@ async def receive_audio_event(
         }
         
     except Exception as e:
-        logger.error(f"[Audio] Error: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(500, f"Processing error: {str(e)}")
+        logger.exception("[Audio] Error processing audio event")
+        raise HTTPException(500, "Processing failed")
 
 
 @router.get("/{event_id}/audio", summary="Stream audio clip straight out of Supabase Storage")
@@ -472,7 +470,7 @@ async def stream_audio(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error streaming from Supabase: {e}")
+        logger.exception(f"Error streaming audio from Supabase for event {event_id}")
         raise HTTPException(500, "Failed to retrieve audio")
 
 
@@ -537,7 +535,7 @@ async def get_all_events(
         return {"events": result}
         
     except Exception as e:
-        logger.error(f"Error fetching all events: {e}")
+        logger.exception("Error fetching all events")
         return {"events": []}
 
 
@@ -565,7 +563,7 @@ async def get_event_stats(
             "screams": screams
         }
     except Exception as e:
-        logger.error(f"Error getting event stats: {e}")
+        logger.exception("Error getting event stats")
         return {"total": 0, "high": 0, "medium": 0, "low": 0, "screams": 0}
 
 
@@ -631,8 +629,8 @@ async def supabase_storage_webhook(
                 raise ValueError("Downloaded file is empty")
             logger.info(f"[Webhook] Downloaded {len(audio_bytes):,} bytes from {file_name}")
         except Exception as e:
-            logger.error(f"[Webhook] Failed to download from Supabase: {e}")
-            raise HTTPException(500, f"Supabase download error: {str(e)}")
+            logger.exception(f"[Webhook] Failed to download from Supabase: {file_name}")
+            raise HTTPException(500, "Audio download failed")
         
         # ── Run scream analysis ──────────────────────────────────────────────
         result = await asyncio.to_thread(_analyzer.analyze, audio_bytes)
@@ -769,7 +767,5 @@ async def supabase_storage_webhook(
         }
         
     except Exception as e:
-        logger.error(f"[Webhook] Error: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(500, f"Webhook processing error: {str(e)}")
+        logger.exception("[Webhook] Error processing storage webhook")
+        raise HTTPException(500, "Processing failed")
