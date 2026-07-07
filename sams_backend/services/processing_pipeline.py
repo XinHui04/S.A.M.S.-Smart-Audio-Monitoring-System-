@@ -53,6 +53,13 @@ from services.nlp_service import NLPService
 
 logger = logging.getLogger(__name__)
 
+_SEVERITY_RANK = {"low": 0, "medium": 1, "high": 2}
+
+
+def _max_severity(a: str, b: str) -> str:
+    """Worse of two severity labels; unknown labels rank above 'high' (fail loud, never understate)."""
+    return a if _SEVERITY_RANK.get(a, 3) >= _SEVERITY_RANK.get(b, 3) else b
+
 
 class ProcessingPipeline:
 
@@ -400,19 +407,28 @@ class ProcessingPipeline:
                 )
                 threat_score = boosted
 
+        # ── Reconcile scream detection with NLP verdict ───────────────────────
+        # A detected scream may only RAISE severity, never lower it, and the
+        # persisted/broadcast score must be one consistent value: the blend of
+        # the (boosted) NLP score and the edge scream confidence.
+        if is_scream:
+            severity    = _max_severity(severity, scream_severity)
+            final_score = max(threat_score, scream_confidence)
+        else:
+            final_score = threat_score
+
         analysis = Analysis(
             analysis_id    = str(uuid.uuid4()),
             transcript_id  = transcript.transcript_id,
             severity_level = severity,
             classification = classification,
-            threat_score   = threat_score,
+            threat_score   = final_score,
         )
         db.add(analysis)
         db.commit()
         db.refresh(analysis)
 
         # ── Alert: fire on scream detection OR NLP threat score ──────────────
-        final_score = max(scream_confidence, threat_score)
         alert_fired = is_scream or threat_score >= self.threshold
         alert_id    = None
 

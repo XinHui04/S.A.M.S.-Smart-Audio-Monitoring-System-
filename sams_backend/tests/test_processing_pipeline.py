@@ -241,10 +241,73 @@ async def test_stt_failure_fallback_scream_alert_still_fires(seeded):
     analysis = seeded.db.query(Analysis).filter(
         Analysis.transcript_id == transcript.transcript_id
     ).one()
-    assert analysis.threat_score == 0.0
+    # Persisted score is the blended value: max(nlp=0.0, scream_confidence=0.8)
+    assert analysis.threat_score == pytest.approx(0.8)
     assert analysis.classification == "scream"
 
     # NLP must be skipped when there is no usable transcript
     pipeline.nlp.analyse.assert_not_awaited()
     assert seeded.db.query(Alert).count() == 1
     pipeline.ws.broadcast_alert.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_scream_escalates_severity_over_harmless_nlp(seeded):
+    """Regression: a high-confidence scream must escalate severity and the
+    persisted score even when the NLP verdict on harmless speech is low."""
+    pipeline = make_pipeline(
+        stt_result={"text": "see you at lunch", "language": "en"},
+        nlp_result=nlp_threat(0.05, "low", "normal"),
+    )
+
+    result = await pipeline.process_stored_audio(
+        db=seeded.db,
+        audio_bytes=b"fake-wav-bytes",
+        event=seeded.event,
+        clip=seeded.clip,
+        location_id="loc-1",
+        scream_confidence=0.95,
+        is_scream=True,
+    )
+
+    assert result["alert_fired"] is True
+    # Scream-derived severity (0.95 > 0.7 => high) wins over NLP "low"
+    assert result["severity"] == "high"
+    # Blended score: max(nlp=0.05, scream_confidence=0.95)
+    assert result["threat_score"] == 0.95
+
+    # Persisted Analysis row stores the same blended score (consistency)
+    analysis = seeded.db.query(Analysis).one()
+    assert analysis.threat_score == 0.95
+    assert analysis.severity_level == "high"
+
+    alert = seeded.db.query(Alert).one()
+    assert alert.severity == "high"
+
+
+@pytest.mark.asyncio
+async def test_no_scream_no_blending_of_scream_confidence(seeded):
+    """is_scream=False: the scream confidence must NOT inflate the score."""
+    pipeline = make_pipeline(
+        stt_result={"text": "see you at lunch", "language": "en"},
+        nlp_result=nlp_threat(0.1, "low", "normal"),
+    )
+
+    result = await pipeline.process_stored_audio(
+        db=seeded.db,
+        audio_bytes=b"fake-wav-bytes",
+        event=seeded.event,
+        clip=seeded.clip,
+        location_id="loc-1",
+        scream_confidence=0.6,
+        is_scream=False,
+    )
+
+    assert result["alert_fired"] is False
+    # No blending when not a scream — score stays the NLP value
+    assert result["threat_score"] == pytest.approx(0.1)
+    assert result["severity"] == "low"
+
+    analysis = seeded.db.query(Analysis).one()
+    assert analysis.threat_score == pytest.approx(0.1)
+    assert seeded.db.query(Alert).count() == 0

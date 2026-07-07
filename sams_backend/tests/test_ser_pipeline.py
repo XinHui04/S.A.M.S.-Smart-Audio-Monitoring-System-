@@ -12,9 +12,9 @@ Documented boost rule (services/processing_pipeline.py, Part C):
       → threat_score += ser_boost (capped at 1.0),
   applied BEFORE the Analysis row is written and BEFORE the alert-threshold
   comparison. An EmotionAnalysis row is persisted for EVERY SER result.
-  The returned dict / WS payload carry final_score =
-  max(scream_confidence, boosted threat_score), while Analysis.threat_score
-  stores the boosted NLP score itself.
+  The returned dict / WS payload and Analysis.threat_score all carry the
+  same final_score: the boosted NLP score, blended with scream_confidence
+  (max of the two) only when is_scream is True.
 
 Run with:
     pytest tests/ -v
