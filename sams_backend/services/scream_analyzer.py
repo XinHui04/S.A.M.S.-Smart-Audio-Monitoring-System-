@@ -10,6 +10,7 @@ For ESP32-C3 that can't run TFLite locally
 import numpy as np
 import soundfile as sf
 import tempfile
+import threading
 import os
 import logging
 from pathlib import Path
@@ -49,7 +50,10 @@ class ScreamAnalyzer:
     def __init__(self, model_path: str = "models/sams_int89.tflite"):
         self.model_path = model_path
         self.model = None
-       
+        # The TFLite interpreter is stateful (set_tensor/invoke/get_tensor)
+        # and must never run concurrently — this lock serialises all analysis.
+        self._lock = threading.Lock()
+
         if TFLITE_AVAILABLE and Path(model_path).exists():
             self._load_model()
        
@@ -197,6 +201,12 @@ class ScreamAnalyzer:
             return np.zeros(SAMPLE_RATE, dtype=np.float32)
        
     def analyze(self, audio_bytes: bytes) -> Dict[str, Any]:
+        # The TFLite interpreter is stateful (set_tensor/invoke/get_tensor)
+        # and must never run concurrently — serialise the entire analysis.
+        with self._lock:
+            return self._analyze_locked(audio_bytes)
+
+    def _analyze_locked(self, audio_bytes: bytes) -> Dict[str, Any]:
         try:
             # ── Load audio ────────────────────────────────────────────────────
             tmp_path = None

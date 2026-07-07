@@ -119,6 +119,7 @@ api/events.py
 MERGED SUPABASE CONTRACT — Scream Analysis (You) + NLP Pipeline (Teammate)
 ═══════════════════════════════════════════════════════
 """
+import asyncio
 import logging
 import uuid
 import io
@@ -213,7 +214,7 @@ async def receive_audio_event(
                 }
         
         # ── Step 2: Run scream analysis ──────────────────────────────────────────
-        result = _analyzer.analyze(audio_bytes)
+        result = await asyncio.to_thread(_analyzer.analyze, audio_bytes)
         
         if result.get('error'):
             logger.error(f"[Audio] Analysis error: {result['error']}")
@@ -634,7 +635,7 @@ async def supabase_storage_webhook(
             raise HTTPException(500, f"Supabase download error: {str(e)}")
         
         # ── Run scream analysis ──────────────────────────────────────────────
-        result = _analyzer.analyze(audio_bytes)
+        result = await asyncio.to_thread(_analyzer.analyze, audio_bytes)
         
         if result.get('error'):
             logger.error(f"[Webhook] Analysis error: {result['error']}")

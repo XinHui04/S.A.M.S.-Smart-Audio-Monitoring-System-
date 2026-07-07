@@ -22,7 +22,9 @@ import os
 os.environ.setdefault("USE_TF", "0")
 os.environ.setdefault("USE_TORCH", "1")
 
+import asyncio
 import logging
+import threading
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
@@ -64,6 +66,10 @@ class NLPService:
         self.model_name = model_name
         self.threshold  = threshold
         self._pipeline  = None   # lazy-loaded
+        # Guards lazy loading AND inference: prevents double-loading the model
+        # on concurrent first requests, and the HF tokenizer/pipeline is not
+        # thread-safe so it must never run from two threads at once.
+        self._lock      = threading.Lock()
         self._load()  # preload the model at startup to avoid first-request lag
 
     def _load(self):
@@ -165,6 +171,10 @@ class NLPService:
         Full NLP analysis pipeline.
         Input:  transcript text from STTService (Module 2 Part A)
         Output: ThreatResult with score, severity, classification
+
+        The blocking work (lazy model load + transformer inference) runs in a
+        worker thread via asyncio.to_thread() so the event loop is never
+        blocked. Trivial inputs short-circuit before the thread dispatch.
         """
         if not transcript_text or len(transcript_text.strip()) < 3:
             return ThreatResult(
@@ -174,21 +184,30 @@ class NLPService:
                 language       = language,
             )
 
-        keywords               = self._keyword_scan(transcript_text)
-        base_score, raw_label  = self._transformer_score(transcript_text)
-        classification, severity, final_score = self._classify(
-            base_score, keywords, transcript_text
-        )
+        return await asyncio.to_thread(self._analyse_sync, transcript_text, language)
 
-        logger.info(
-            f"NLP result | score={final_score} | severity={severity} | "
-            f"class={classification} | keywords={keywords}"
-        )
+    def _analyse_sync(self, transcript_text: str, language: str) -> ThreatResult:
+        """
+        Blocking analysis body. The lock covers lazy loading AND the pipeline
+        call so concurrent first-requests can't double-load the model and the
+        HF tokenizer is never used from two threads at once.
+        """
+        with self._lock:
+            keywords               = self._keyword_scan(transcript_text)
+            base_score, raw_label  = self._transformer_score(transcript_text)
+            classification, severity, final_score = self._classify(
+                base_score, keywords, transcript_text
+            )
 
-        return ThreatResult(
-            threat_score   = final_score,
-            severity_level = severity,
-            classification = classification,
-            keywords_found = keywords,
-            language       = language,
-        )
+            logger.info(
+                f"NLP result | score={final_score} | severity={severity} | "
+                f"class={classification} | keywords={keywords}"
+            )
+
+            return ThreatResult(
+                threat_score   = final_score,
+                severity_level = severity,
+                classification = classification,
+                keywords_found = keywords,
+                language       = language,
+            )

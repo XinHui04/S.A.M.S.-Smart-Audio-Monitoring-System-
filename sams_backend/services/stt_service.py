@@ -19,6 +19,7 @@ Setup:
   3. Create an API key
   4. Add to .env: GROQ_API_KEY=gsk_...
 """
+import asyncio
 import os
 import logging
 import tempfile
@@ -61,8 +62,17 @@ class STTService:
         """
         Transcribes a WAV file using Groq's Whisper Large v3 API.
 
+        The blocking Groq HTTP call runs in a worker thread via
+        asyncio.to_thread() so the event loop is never blocked.
+
         Input:  file path from AudioCaptureService (Module 1 output)
         Output: { "text": str, "language": str, "segments": list }
+        """
+        return await asyncio.to_thread(self._transcribe_sync, audio_path)
+
+    def _transcribe_sync(self, audio_path: str) -> dict:
+        """
+        Blocking transcription body — runs Groq's Whisper Large v3 API call.
 
         language=None lets Whisper auto-detect, which handles
         Manglish / Malay-English code-switching (Section 2.1.2).
