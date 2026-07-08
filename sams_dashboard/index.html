@@ -1021,7 +1021,7 @@ function handleIncomingAlert(msg) {
       classification: msg.classification,
       audio_url:      msg.audio_url,
       created_at:     msg.timestamp,
-      // Optional speech-emotion fields (WS-only; REST alerts do not carry these)
+      // Speech-emotion fields (also present on REST alerts)
       emotion:            msg.emotion,
       emotion_confidence: msg.emotion_confidence,
     });
@@ -1146,8 +1146,8 @@ async function selectAlert(alertId) {
   try {
     const res  = await authFetch(`${API}/api/alerts/${alertId}`);
     const data = await res.json();
-    // REST detail carries no emotion; keep the WS-pushed value if we have one
-    if (cached && cached.emotion && data.emotion === undefined) {
+    // Prefer the REST value; fall back to the WS-pushed value if REST has none
+    if (cached && cached.emotion && data.emotion == null) {
       data.emotion            = cached.emotion;
       data.emotion_confidence = cached.emotion_confidence;
     }
@@ -1167,7 +1167,7 @@ function renderDetail(alert) {
   const pitchTxt     = fmt(alert.pitch, ' Hz', 0);
   const edgeConfTxt  = (alert.edge_confidence === null || alert.edge_confidence === undefined) ? '—' : (alert.edge_confidence * 100).toFixed(0) + '%';
 
-  // Speech-emotion chip (WS-pushed alerts only; REST alerts have no emotion field)
+  // Speech-emotion chip (SER result; present on both WS and REST alerts)
   let emotionChip = '';
   if (alert.emotion) {
     const emo     = String(alert.emotion).toLowerCase();

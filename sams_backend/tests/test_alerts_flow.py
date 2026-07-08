@@ -20,7 +20,7 @@ from test_auth import (  # noqa: F401  — db_setup/client are pytest fixtures
     STAFF_EMAIL, STAFF_PASSWORD,
 )
 
-from models.database import Location, Device, Event, Alert  # noqa: E402
+from models.database import Location, Device, Event, Alert, EmotionAnalysis  # noqa: E402
 
 
 BASE_TS = datetime(2026, 6, 15, 10, 0, 0)
@@ -225,3 +225,43 @@ def test_stats_counts_acknowledged(client, db_setup, mixed_status_alerts):
     assert body["high"] == 1
     assert body["medium"] == 1
     assert body["low"] == 1
+
+
+# ── 9. SER enrichment: emotion + emotion_confidence on alert payloads ───────
+
+def test_alert_carries_emotion_when_present(client, db_setup):
+    seed_alerts(db_setup, [
+        {"alert_id": "alert-with-emotion", "severity": "high", "status": "active"},
+    ])
+    session = db_setup()
+    try:
+        session.add(EmotionAnalysis(event_id="evt-1", emotion="angry", confidence=0.9))
+        session.commit()
+    finally:
+        session.close()
+    headers = staff_headers(client)
+
+    list_resp = client.get("/api/alerts/?status=all", headers=headers)
+    assert list_resp.status_code == 200
+    alert_from_list = list_resp.json()["alerts"][0]
+    assert alert_from_list["emotion"] == "angry"
+    assert alert_from_list["emotion_confidence"] == 0.9
+
+    detail_resp = client.get("/api/alerts/alert-with-emotion", headers=headers)
+    assert detail_resp.status_code == 200
+    body = detail_resp.json()
+    assert body["emotion"] == "angry"
+    assert body["emotion_confidence"] == 0.9
+
+
+def test_alert_emotion_is_none_without_row(client, db_setup):
+    seed_alerts(db_setup, [
+        {"alert_id": "alert-no-emotion", "severity": "high", "status": "active"},
+    ])
+    headers = staff_headers(client)
+
+    resp = client.get("/api/alerts/alert-no-emotion", headers=headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["emotion"] is None
+    assert body["emotion_confidence"] is None

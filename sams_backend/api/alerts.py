@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import case
 from sqlalchemy.orm import Session
 
-from models.database import Alert, Event, Device, Location, AudioClip, Transcript, Analysis, User, StaffLocation
+from models.database import Alert, Event, Device, Location, AudioClip, Transcript, Analysis, User, StaffLocation, EmotionAnalysis
 from models.schemas import AlertResolveRequest
 from api.dependencies import get_db, get_current_user
 
@@ -66,6 +66,12 @@ def _enrich_alert(alert: Alert, db: Session) -> dict:
     transcript = clip.transcript  if clip  else None
     analysis   = transcript.analysis if transcript else None
 
+    # SER result: the pipeline writes at most one EmotionAnalysis row per
+    # event, so .first() is deterministic; order_by is defensive only.
+    emo = db.query(EmotionAnalysis).filter(
+        EmotionAnalysis.event_id == alert.event_id
+    ).order_by(EmotionAnalysis.emotion_id).first()
+
     return {
         "alert_id":       alert.alert_id,
         "event_id":       alert.event_id,
@@ -82,6 +88,8 @@ def _enrich_alert(alert: Alert, db: Session) -> dict:
         "pitch":          event.pitch if event else None,
         "edge_confidence": event.confidence_score if event else None,
         "audio_url":      f"/api/events/{alert.event_id}/audio" if clip else None,
+        "emotion":            emo.emotion if emo else None,
+        "emotion_confidence": emo.confidence if emo else None,
     }
 
 
