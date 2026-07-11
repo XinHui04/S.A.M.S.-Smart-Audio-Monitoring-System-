@@ -121,11 +121,12 @@ def make_pipeline(stt_result=None, nlp_result=None, ser=None):
     )
 
 
-def nlp_threat(score, severity, classification):
+def nlp_threat(score, severity, classification, model_confidence=None):
     return SimpleNamespace(
         threat_score=score,
         severity_level=severity,
         classification=classification,
+        model_confidence=model_confidence,
     )
 
 

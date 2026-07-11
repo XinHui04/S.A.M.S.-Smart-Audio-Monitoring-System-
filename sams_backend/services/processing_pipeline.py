@@ -174,8 +174,9 @@ class ProcessingPipeline:
                         classification = "normal",
                         threat_score   = 0.0,
                     ),
-                    alert_fired = False,
-                    message     = "Discarded — no speech detected in audio clip",
+                    alert_fired       = False,
+                    message           = "Discarded — no speech detected in audio clip",
+                    scream_confidence = edge_confidence,
                 )
 
             # ── MODULE 2: Cloud Processing & AI Analysis ──────────────────────
@@ -185,6 +186,7 @@ class ProcessingPipeline:
             self._cleanup_local_working_copy(file_ref, file_path)
             transcript_text = stt_result["text"]
             language        = stt_result["language"]
+            stt_confidence  = stt_result.get("confidence")
 
             transcript = Transcript(
                 transcript_id = str(uuid.uuid4()),
@@ -244,6 +246,9 @@ class ProcessingPipeline:
                 audio_url      = f"/api/events/{event.event_id}/audio",
                 timestamp      = event.timestamp.isoformat(),
                 location_id    = location_id,   # FR16: route to assigned staff
+                stt_confidence    = stt_confidence,
+                nlp_confidence    = threat.model_confidence,
+                scream_confidence = edge_confidence,
             )
 
             # ── MODULE 4: MQTT fan-out to external subscribers (Figs 4.1/4.2) ──
@@ -259,6 +264,9 @@ class ProcessingPipeline:
                     transcript     = transcript_text,
                     audio_url      = f"/api/events/{event.event_id}/audio",
                     timestamp      = event.timestamp.isoformat(),
+                    stt_confidence    = stt_confidence,
+                    nlp_confidence    = threat.model_confidence,
+                    scream_confidence = edge_confidence,
                 )
 
             logger.warning(
@@ -276,14 +284,16 @@ class ProcessingPipeline:
             event_id    = event.event_id,
             clip_id     = clip.clip_id,
             transcript  = TranscriptResult(
-                transcript_id = transcript.transcript_id,
-                text          = transcript_text,
+                transcript_id  = transcript.transcript_id,
+                text           = transcript_text,
+                stt_confidence = stt_confidence,
             ),
             analysis    = AnalysisResult(
                 analysis_id    = analysis.analysis_id,
                 severity_level = threat.severity_level,
                 classification = threat.classification,
                 threat_score   = threat.threat_score,
+                nlp_confidence = threat.model_confidence,
             ),
             alert_fired = alert_fired,
             message     = (
@@ -291,6 +301,7 @@ class ProcessingPipeline:
                 if alert_fired else
                 "Processed — below threat threshold"
             ),
+            scream_confidence = edge_confidence,
         )
 
     async def process_stored_audio(
@@ -317,6 +328,7 @@ class ProcessingPipeline:
         transcript_text = ""
         language        = "unknown"
         stt_ok          = False
+        stt_confidence  = None
         ser_result      = None
 
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
@@ -327,6 +339,7 @@ class ProcessingPipeline:
                 stt_result      = await self.stt.transcribe(tmp.name)
                 transcript_text = stt_result["text"]
                 language        = stt_result["language"]
+                stt_confidence  = stt_result.get("confidence")
                 stt_ok          = True
             except Exception as e:
                 logger.warning(f"Event {event.event_id}: STT failed ({e}) — continuing without transcript.")
@@ -390,6 +403,8 @@ class ProcessingPipeline:
                 threat_score   = 0.0
                 severity       = scream_severity
                 classification = "scream" if is_scream else "unknown"
+
+            nlp_confidence = threat.model_confidence if threat is not None else None
 
             # ── Part C: SER boost + persistence (§2.1.3) ──────────────────────
             # A confidently negative vocal tone corroborates the threat: boost
@@ -484,6 +499,9 @@ class ProcessingPipeline:
                 location_id    = location_id,   # FR16: route to assigned staff
                 emotion            = emotion,
                 emotion_confidence = emotion_confidence,
+                stt_confidence     = stt_confidence,
+                nlp_confidence     = nlp_confidence,
+                scream_confidence  = scream_confidence,
             )
 
             # ── MODULE 4: MQTT fan-out to external subscribers (Figs 4.1/4.2) ──
@@ -501,6 +519,9 @@ class ProcessingPipeline:
                     timestamp      = event.timestamp.isoformat(),
                     emotion            = emotion,
                     emotion_confidence = emotion_confidence,
+                    stt_confidence     = stt_confidence,
+                    nlp_confidence     = nlp_confidence,
+                    scream_confidence  = scream_confidence,
                 )
 
             logger.warning(
@@ -523,6 +544,9 @@ class ProcessingPipeline:
             "alert_id":       alert_id,
             "emotion":            emotion,
             "emotion_confidence": emotion_confidence,
+            "stt_confidence":     stt_confidence,
+            "nlp_confidence":     nlp_confidence,
+            "scream_confidence":  scream_confidence,
         }
 
     def _cleanup_local_working_copy(self, file_ref: str, local_path: str) -> None:

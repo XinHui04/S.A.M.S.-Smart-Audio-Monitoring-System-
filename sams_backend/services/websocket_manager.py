@@ -102,6 +102,9 @@ class WebSocketManager:
         location_id:    str  = None,   # FR16: routes the alert to assigned staff
         emotion:            str   = None,   # SER (§2.1.3) — vocal emotion, optional
         emotion_confidence: float = None,
+        stt_confidence:     float = None,   # 0–1, Whisper transcription confidence
+        nlp_confidence:     float = None,   # 0–1, raw NLP toxicity probability (pre-boost)
+        scream_confidence:  float = None,   # 0–1, scream detection confidence
     ):
         sent = await self._broadcast({
             "type":           "ALERT",
@@ -117,6 +120,9 @@ class WebSocketManager:
             "timestamp":      timestamp or datetime.utcnow().isoformat(),
             "emotion":            emotion,
             "emotion_confidence": emotion_confidence,
+            "stt_confidence":     stt_confidence,
+            "nlp_confidence":     nlp_confidence,
+            "scream_confidence":  scream_confidence,
         }, location_id=location_id)
         logger.info(
             f"WS broadcast: ALERT severity={severity} location={location_id or 'ALL'} "

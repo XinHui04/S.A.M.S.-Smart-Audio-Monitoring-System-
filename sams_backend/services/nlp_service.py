@@ -12,7 +12,7 @@ Two-layer approach (Section 2.1.2):
   Layer 2 — Keyword scan: catches known Malay/Manglish slang that
              the model may not have seen in training data
 
-Output: ThreatResult with score (0–1), severity, classification
+Output: ThreatResult with score (0–1), severity, classification, model_confidence
 """
 import os
 
@@ -51,6 +51,9 @@ class ThreatResult:
     classification: str        # verbal_bullying | threat | distress | normal
     keywords_found: list[str]  = field(default_factory=list)
     language:       str        = "unknown"
+    # Raw transformer toxicity probability BEFORE keyword boosting; None when
+    # the model was unavailable or the input was too short to analyse.
+    model_confidence: float | None = None
 
 
 class NLPService:
@@ -199,15 +202,22 @@ class NLPService:
                 base_score, keywords, transcript_text
             )
 
+            # Don't record a misleading 0.0 confidence when the model fell
+            # back due to failure — None distinguishes "genuinely low score"
+            # from "model unavailable".
+            model_confidence = None if raw_label == "model_unavailable" else round(base_score, 4)
+
             logger.info(
                 f"NLP result | score={final_score} | severity={severity} | "
-                f"class={classification} | keywords={keywords}"
+                f"class={classification} | keywords={keywords} | "
+                f"model_confidence={model_confidence}"
             )
 
             return ThreatResult(
-                threat_score   = final_score,
-                severity_level = severity,
-                classification = classification,
-                keywords_found = keywords,
-                language       = language,
+                threat_score     = final_score,
+                severity_level   = severity,
+                classification   = classification,
+                keywords_found   = keywords,
+                language         = language,
+                model_confidence = model_confidence,
             )

@@ -66,3 +66,33 @@ async def test_severity_levels(classifier):
     assert sev_high   == "high"
     assert sev_medium == "medium"
     assert sev_low    == "low"
+
+
+@pytest.mark.asyncio
+async def test_model_confidence_none_for_short_input(classifier):
+    """Inputs under 3 chars short-circuit before the transformer even runs."""
+    result = await classifier.analyse("hi")
+    assert result.model_confidence is None
+
+
+@pytest.mark.asyncio
+async def test_model_confidence_none_when_model_unavailable(classifier):
+    """classifier fixture stubs _transformer_score to model_unavailable — must yield None, not 0.0."""
+    result = await classifier.analyse("You are such a loser, nobody likes you, just go die!")
+    assert result.model_confidence is None
+
+
+@pytest.mark.asyncio
+async def test_model_confidence_equals_raw_transformer_score_not_boosted():
+    """model_confidence reflects the raw transformer probability, unaffected by
+    keyword boosting — so it can differ from (be lower than) threat_score once
+    keywords push threat_score up."""
+    clf = NLPService(threshold=0.75)
+    clf._transformer_score = lambda text: (0.5, "offensive")
+
+    text = "You are such a loser, go die!"  # contains bullying keywords
+    result = await clf.analyse(text)
+
+    assert len(result.keywords_found) > 0
+    assert result.model_confidence == 0.5
+    assert result.threat_score > result.model_confidence

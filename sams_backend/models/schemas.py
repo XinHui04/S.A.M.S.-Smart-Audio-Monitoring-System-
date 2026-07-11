@@ -29,12 +29,14 @@ class AudioEventPayload(BaseModel):
 class TranscriptResult(BaseModel):
     transcript_id: str
     text:          str
+    stt_confidence: Optional[float] = None   # 0–1, Whisper transcription confidence (how sure the STT is about the text)
 
 class AnalysisResult(BaseModel):
     analysis_id:    str
     severity_level: str        # low | medium | high
     classification: str        # verbal_bullying | threat | distress | normal
     threat_score:   float      # 0.0–1.0
+    nlp_confidence: Optional[float] = None   # 0–1, raw XLM-RoBERTa toxicity probability (before keyword boost)
 
 class ProcessingResponse(BaseModel):
     """Full response returned after cloud processing completes."""
@@ -42,6 +44,9 @@ class ProcessingResponse(BaseModel):
     clip_id:     str
     transcript:  TranscriptResult
     analysis:    AnalysisResult
+    scream_confidence:  Optional[float] = None  # 0–1, edge-device scream detection confidence
+    emotion:            Optional[str]   = None  # SER detected emotion (angry/fearful/...)
+    emotion_confidence: Optional[float] = None  # 0–1, SER confidence for that emotion
     alert_fired: bool
     message:     str
 

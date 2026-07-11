@@ -96,11 +96,12 @@ def make_pipeline(stt_result=None, stt_exc=None, nlp_result=None):
     return pipeline
 
 
-def nlp_threat(score, severity, classification):
+def nlp_threat(score, severity, classification, model_confidence=None):
     return SimpleNamespace(
         threat_score=score,
         severity_level=severity,
         classification=classification,
+        model_confidence=model_confidence,
     )
 
 
@@ -355,3 +356,65 @@ async def test_no_scream_no_blending_of_scream_confidence(seeded):
     analysis = seeded.db.query(Analysis).one()
     assert analysis.threat_score == pytest.approx(0.1)
     assert seeded.db.query(Alert).count() == 0
+
+
+@pytest.mark.asyncio
+async def test_confidence_fields_pass_through_on_alert(seeded):
+    """stt_confidence, nlp_confidence (raw model score) and scream_confidence
+    must all flow through to the returned dict and the WS broadcast payload."""
+    pipeline = make_pipeline(
+        stt_result={"text": "I will beat you up after school", "language": "en", "confidence": 0.9321},
+        nlp_result=nlp_threat(0.9, "high", "verbal_threat", model_confidence=0.6543),
+    )
+
+    result = await pipeline.process_stored_audio(
+        db=seeded.db,
+        audio_bytes=b"fake-wav-bytes",
+        event=seeded.event,
+        clip=seeded.clip,
+        location_id="loc-1",
+        scream_confidence=0.2,
+        is_scream=False,
+    )
+
+    assert result["alert_fired"] is True
+    assert result["stt_confidence"] == 0.9321
+    assert result["nlp_confidence"] == 0.6543
+    assert result["scream_confidence"] == 0.2
+
+    pipeline.ws.broadcast_alert.assert_awaited_once()
+    ws_kwargs = pipeline.ws.broadcast_alert.call_args.kwargs
+    assert ws_kwargs["stt_confidence"] == 0.9321
+    assert ws_kwargs["nlp_confidence"] == 0.6543
+    assert ws_kwargs["scream_confidence"] == 0.2
+
+    pipeline.mqtt.publish_alert.assert_called_once()
+    mqtt_kwargs = pipeline.mqtt.publish_alert.call_args.kwargs
+    assert mqtt_kwargs["stt_confidence"] == 0.9321
+    assert mqtt_kwargs["nlp_confidence"] == 0.6543
+    assert mqtt_kwargs["scream_confidence"] == 0.2
+
+
+@pytest.mark.asyncio
+async def test_confidence_fields_missing_or_none_do_not_break_pipeline(seeded):
+    """STT result missing the 'confidence' key entirely (older/mocked shape)
+    and NLP model_confidence=None (model unavailable) must not raise — the
+    pipeline uses .get()/attribute access defensively."""
+    pipeline = make_pipeline(
+        stt_result={"text": "see you at lunch", "language": "en"},  # no "confidence" key
+        nlp_result=nlp_threat(0.1, "low", "normal", model_confidence=None),
+    )
+
+    result = await pipeline.process_stored_audio(
+        db=seeded.db,
+        audio_bytes=b"fake-wav-bytes",
+        event=seeded.event,
+        clip=seeded.clip,
+        location_id="loc-1",
+        scream_confidence=0.1,
+        is_scream=False,
+    )
+
+    assert result["stt_confidence"] is None
+    assert result["nlp_confidence"] is None
+    assert result["scream_confidence"] == 0.1

@@ -20,6 +20,7 @@ Setup:
   4. Add to .env: GROQ_API_KEY=gsk_...
 """
 import asyncio
+import math
 import os
 import logging
 import tempfile
@@ -66,7 +67,9 @@ class STTService:
         asyncio.to_thread() so the event loop is never blocked.
 
         Input:  file path from AudioCaptureService (Module 1 output)
-        Output: { "text": str, "language": str, "segments": list }
+        Output: { "text": str, "language": str, "segments": list,
+                  "confidence": float | None  # 0–1, mean per-segment exp(avg_logprob); None if unavailable
+                }
         """
         return await asyncio.to_thread(self._transcribe_sync, audio_path)
 
@@ -93,13 +96,48 @@ class STTService:
                 temperature      = 0.0,                   # deterministic output
             )
 
-        text = transcription.text.strip() if transcription.text else ""
-        lang = getattr(transcription, "language", "unknown")
+        text     = transcription.text.strip() if transcription.text else ""
+        lang     = getattr(transcription, "language", "unknown")
+        segments = getattr(transcription, "segments", [])
 
-        logger.info(f"Groq STT complete [{lang}]: '{text[:100]}'")
+        confidence = self._compute_confidence(segments) if text else None
+
+        logger.info(f"Groq STT complete [{lang}]: '{text[:100]}' (confidence={confidence})")
 
         return {
-            "text":     text,
-            "language": lang,
-            "segments": getattr(transcription, "segments", []),
+            "text":       text,
+            "language":   lang,
+            "segments":   segments,
+            "confidence": confidence,
         }
+
+    def _compute_confidence(self, segments) -> float | None:
+        """
+        Derives a 0–1 transcription confidence from Whisper's per-segment
+        avg_logprob values: confidence = mean(exp(avg_logprob)), clamped
+        to [0.0, 1.0] and rounded to 4 decimals.
+
+        Segments may come back as dicts or objects depending on the Groq
+        SDK version, so avg_logprob is read defensively. Returns None if
+        there are no usable segments, or if anything unexpected happens
+        (never lets confidence computation break transcription output).
+        """
+        try:
+            logprobs = []
+            for seg in segments or []:
+                if isinstance(seg, dict):
+                    avg_logprob = seg.get("avg_logprob")
+                else:
+                    avg_logprob = getattr(seg, "avg_logprob", None)
+                if avg_logprob is not None:
+                    logprobs.append(avg_logprob)
+
+            if not logprobs:
+                return None
+
+            mean_prob  = sum(math.exp(lp) for lp in logprobs) / len(logprobs)
+            confidence = max(0.0, min(1.0, mean_prob))
+            return round(confidence, 4)
+        except Exception:
+            logger.warning("Failed to compute STT confidence from segments", exc_info=True)
+            return None
