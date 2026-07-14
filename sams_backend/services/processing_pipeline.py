@@ -216,7 +216,8 @@ class ProcessingPipeline:
                     event_id   = event.event_id,
                     severity   = threat.severity_level,
                     status     = "active",
-                    created_at = datetime.utcnow(),
+                    # created_at = datetime.utcnow(),
+                    created_at = event.timestamp, 
                 )
                 db.add(alert)
                 db.flush()
@@ -467,7 +468,8 @@ class ProcessingPipeline:
                     event_id   = event.event_id,
                     severity   = severity,
                     status     = "active",
-                    created_at = datetime.utcnow(),
+                    # created_at = datetime.utcnow(),
+                    created_at = event.timestamp, 
                 )
                 db.add(alert)
                 db.flush()
