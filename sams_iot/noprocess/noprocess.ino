@@ -1,6 +1,6 @@
 // ================================================================
 // S.A.M.S. - ESP32 30 pins (Audio Capture Only - No Processing)
-// ================================================================d
+// ================================================================
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -18,10 +18,6 @@ const char* wifi_ssid = WIFI_SSID;
 const char* wifi_password = WIFI_PASSWORD;
 WiFiClient espClient;
 bool ledwifi_state = false;
-
-// ── Backend server (FastAPI) ─────────────────────────────────────────
-// SERVER_IP / SERVER_PORT come from secrets.h (reconfigure before each upload)
-#define NOTIFY_ENDPOINT "/api/events/audio"     // backend receives metadata + Supabase path
 
 // ── Supabase Storage (HTTPS) ──────────────────────────────────────────────
 // SUPABASE_HOST / SUPABASE_KEY come from secrets.h
@@ -56,7 +52,7 @@ bool ledwifi_state = false;
 // Globals
 // ════════════════════════════════════════════════════════════════════════════
 unsigned long lastTriggerTime = 0;
-const unsigned long triggerCooldownMs = 40;  // for 8s clips
+const unsigned long triggerCooldownMs = 15000;  // for 8s clips
 bool isLedAlertActive = false;
 
 // Small stack buffers only — no large heap allocation needed
@@ -119,10 +115,8 @@ void setupI2S();
 void setupWiFi();
 void setupNTP();
 void getISO8601Timestamp(char* buf, size_t len);
-bool streamRecordToSupabase(const char* filename, int soundLevel,
-                            const char* timestamp);
-bool notifyBackend(const char* supabasePath, int soundLevel,
-                   const char* timestamp);
+bool streamRecordToSupabase(const char* filename, int soundLevel, const char* timestamp);
+bool uploadMetadataToSupabase(const char* uuid, int soundLevel, const char* timestamp);
 void triggerSoundDetectedAlert();
 void triggerSolidLedAlert();
 
@@ -221,10 +215,12 @@ void loop() {
 
         Serial.println(F("🎙️ Recording + streaming 8s to Supabase..."));
 
+        bool metadataOk = uploadMetadataToSupabase(uuid, soundLevel, timestamp);
+
         bool ok = streamRecordToSupabase(filename, soundLevel, timestamp);
 
-        if (ok) {
-            Serial.println(F("✅ Stream + upload complete!"));
+        if (ok && metadataOk) {
+            Serial.println(F("✅ Both stream + metadata upload complete!"));
         } else {
             Serial.println(F("❌ Stream/upload failed!"));
         }
@@ -361,165 +357,103 @@ bool streamRecordToSupabase(const char* filename, int soundLevel,
                    statusLine.indexOf("201") > 0;
 
     if (success) {
-        notifyBackend(filename, soundLevel, timestamp);
+        Serial.println(F("✅ Upload complete — backend will process asynchronously"));
+        triggerSolidLedAlert();
     } else {
         Serial.print(F("[Supabase] Upload failed: "));
         Serial.println(statusLine);
+        // optionally: a distinct failure blink pattern here
     }
 
     return success;
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// Notify FastAPI backend — sends metadata + Supabase file path
-// Backend downloads from Supabase, runs scream analysis, saves to DB
-// ════════════════════════════════════════════════════════════════════════════
-bool notifyBackend(const char* supabasePath, int soundLevel,
-                   const char* timestamp) {
+bool uploadMetadataToSupabase(const char* uuid, int soundLevel, const char* timestamp) {
+    WiFiClientSecure client;
+    client.setInsecure();
+    client.setTimeout(HTTP_TIMEOUT_MS / 1000);
 
-    WiFiClient client;
-
-    if (!client.connect(SERVER_IP, SERVER_PORT)) {
-        Serial.println(F("[Backend] TCP connect failed"));
+    if (!client.connect(SUPABASE_HOST, 443)) {
+        Serial.println(F("[Supabase] Metadata upload: HTTPS connect failed"));
         return false;
     }
 
-    // client.setTimeout(30000);
-    client.setTimeout(60000);
+    // Build JSON metadata
+    String jsonBody = "{";
+    jsonBody += "\"device_id\":\"" + String(DEVICE_ID) + "\",";
+    jsonBody += "\"location_id\":\"" + String(LOCATION_ID) + "\",";
+    jsonBody += "\"timestamp\":\"" + String(timestamp) + "\",";
+    jsonBody += "\"sound_level\":" + String(soundLevel);
+    jsonBody += "}";
 
-    String bnd  = BOUNDARY;
-    String body = "";
+    // Build path: /storage/v1/object/audio-clips/{uuid}.json
+    String path = "/storage/v1/object/";
+    path += SUPABASE_BUCKET;
+    path += "/";
+    path += String(uuid);
+    path += ".json";
 
-    auto addField = [&](const char* name, String value) {
-        body += "--" + bnd + "\r\n";
-        body += "Content-Disposition: form-data; name=\"";
-        body += name;
-        body += "\"\r\n\r\n";
-        body += value + "\r\n";
-    };
+    Serial.printf("[Supabase] PUT metadata %s (%u bytes)\n", path.c_str(), jsonBody.length());
 
-    addField("device_id",          DEVICE_ID);
-    addField("location_id",        LOCATION_ID);
-    addField("timestamp",          String(timestamp));
-    addField("sound_level",        String(soundLevel));
-    addField("duration_seconds",   String(RECORD_SECONDS));
-    addField("supabase_file_path", String(supabasePath));
-
-    body += "--" + bnd + "--\r\n";
-
-    Serial.printf("[Backend] POST %s\n", NOTIFY_ENDPOINT);
-
-    client.print("POST ");
-    client.print(NOTIFY_ENDPOINT);
+    // ── Send HTTP headers ─────────────────────────────────────────────────
+    client.print("PUT ");
+    client.print(path);
     client.println(" HTTP/1.1");
-    client.print("Host: "); client.print(SERVER_IP);
-    client.print(":"); client.println(SERVER_PORT);
-    client.print("Content-Type: multipart/form-data; boundary=");
-    client.println(BOUNDARY);
-    client.print("Content-Length: "); client.println(body.length());
+    client.print("Host: ");
+    client.println(SUPABASE_HOST);
+    client.print("Authorization: Bearer ");
+    client.println(SUPABASE_KEY);
+    client.println("Content-Type: application/json");
+    client.print("Content-Length: ");
+    client.println(jsonBody.length());
+    client.println("x-upsert: true");
     client.println("Connection: close");
+    client.println("Accept: application/json");
     client.println();
-    client.print(body);
-    client.flush();
+    client.print(jsonBody);
 
-    // ── Read full response ───────────────────────────────────────────────
-    unsigned long deadline = millis() + 60000;
-    String response = "";
-    bool headersEnded = false;
+    // ── Read response ─────────────────────────────────────────────────────
+    unsigned long deadline = millis() + 15000;
+    while (!client.available() && client.connected() && millis() < deadline) {
+        delay(10);
+    }
+
+    String statusLine = "";
+    bool gotStatus = false;
 
     while (client.connected() && millis() < deadline) {
         if (client.available()) {
+            delay(100);
             String line = client.readStringUntil('\n');
-            
-            // Check if we've reached the end of headers
-            // if (line == "\r" || line == "\n" || line == "\r\n" || line.length() <= 1) {
-            //     headersEnded = true;
-            //     continue;
-            // }
+            line.trim();
 
-            if (line == "\r" || line == "" || line == "\n") {
-                headersEnded = true;
+            if (!gotStatus && line.indexOf("HTTP") >= 0) {
+                statusLine = line;
+                gotStatus = true;
+                Serial.print(F("[Supabase] Metadata "));
+                Serial.println(statusLine);
                 continue;
             }
-
-            // If headers ended, this is the body
-            if (headersEnded) {
-                // Read the rest of the response
-                response = line;
-                while (client.available()) {
-                    response += client.readString();
-                }
-                break;
-            }
+            if (line.length() == 0) break;
         }
     }
     client.stop();
+    delay(500);
 
-    // Trim response
-    response.trim();
-    
-    // Find where JSON starts (after HTTP headers)
-    int jsonStart = response.indexOf('{');
-    int jsonEnd   = response.lastIndexOf('}');
-
-    if (jsonStart >= 0 && jsonEnd >= 0) {
-        response = response.substring(jsonStart, jsonEnd + 1);
-    }
-
-    Serial.print("[Backend] Response: ");
-    Serial.println(response);
-
-    // Serial.print("[Backend] Response: ");
-    // Serial.println(response.substring(0, 200)); // Print first 200 chars
-
-    // ── Parse JSON response ──────────────────────────────────────────────
-    if (response.length() == 0) {
-        Serial.println(F("[Backend] Empty response"));
-        Serial.println(F("[Backend] Check dashboard for results later"));
-        return true;
-    }
-
-    if (jsonStart < 0) {
-        Serial.println(F("[Backend] No JSON found in response"));
-        return false;
-    }
-    
-    // String jsonStr = response.substring(jsonStart);
-    // Serial.print("[Backend] JSON: ");
-    // Serial.println(jsonStr);
-
-    DynamicJsonDocument doc(512);
-    // DeserializationError error = deserializeJson(doc, jsonStr);
-    DeserializationError error = deserializeJson(doc, response);
-
-    if (error) {
-        Serial.print(F("[Backend] JSON parse: "));
-        Serial.println(error.c_str());
+    if (!gotStatus) {
+        Serial.println(F("[Supabase] Metadata upload: No response"));
         return false;
     }
 
-    // Extract values
-    bool  isScream   = doc["is_scream"]   | false;
-    float confidence = doc["confidence"]  | 0.0f;
-    bool  alertFired = doc["alert_fired"] | false;
-    String message   = doc["message"]     | "";
-
-    Serial.printf("[Backend] isScream=%d confidence=%.3f alertFired=%d\n",
-                  isScream, confidence, alertFired);
-
-    if (isScream) {
-        Serial.printf("🔴 SCREAM DETECTED! (%.1f%%)\n", confidence * 100);
-        Serial.printf("📝 Message: %s\n", message.c_str());
-        if (alertFired) {
-            Serial.println(F("🚨 ALERT FIRED!"));
-            triggerSolidLedAlert();
-        }
+    bool success = statusLine.indexOf("200") > 0 || statusLine.indexOf("201") > 0;
+    if (success) {
+        Serial.println(F("✅ Metadata upload complete"));
     } else {
-        Serial.printf("🟢 No scream (%.1f%%)\n", confidence * 100);
-        Serial.printf("📝 Message: %s\n", message.c_str());
+        Serial.print(F("[Supabase] Metadata upload failed: "));
+        Serial.println(statusLine);
     }
 
-    return true;
+    return success;
 }
 
 // ════════════════════════════════════════════════════════════════════════════

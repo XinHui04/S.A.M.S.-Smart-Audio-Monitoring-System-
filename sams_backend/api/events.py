@@ -1,118 +1,3 @@
-
-
-# """
-# api/events.py
-# ═══════════════════════════════════════════════════════
-# API CONTRACT for Lee Jia Shin's edge device
-# ═══════════════════════════════════════════════════════
-
-# POST /api/events/audio
-#   Lee's ESP32-C3 calls this after her scream detection triggers.
-#   Sends: multipart/form-data with audio file + metadata fields.
-
-# GET  /api/events/{event_id}/audio
-#   Dashboard calls this to stream the audio clip for playback.
-# """
-# import io
-# import os
-# import logging
-# from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
-# from fastapi.responses import FileResponse, StreamingResponse
-# from sqlalchemy.orm import Session
-
-# from models.database import Event, AudioClip
-# from models.schemas import ProcessingResponse
-# from api.dependencies import get_db, get_pipeline, get_audio_storage
-
-# router = APIRouter(prefix="/api/events", tags=["Module 1+2 — Audio Ingestion"])
-# logger = logging.getLogger(__name__)
-
-
-# @router.post(
-#     "/audio",
-#     response_model=ProcessingResponse,
-#     summary="[Lee's ESP32] Submit audio clip for processing",
-# )
-# async def receive_audio_event(
-#     # ── Fields Lee's ESP32 must send ─────────────────────────────────────────
-#     device_id:        str   = Form(..., description="ESP32 device ID, e.g. esp32-001"),
-#     location_id:      str   = Form(..., description="Physical location ID"),
-#     timestamp:        str   = Form(..., description="ISO8601 UTC, e.g. 2026-06-11T10:30:00"),
-#     intensity:        float = Form(..., description="Sound intensity in dB from edge"),
-#     pitch:            float = Form(..., description="Dominant pitch in Hz from edge"),
-#     confidence_score: float = Form(..., description="Edge scream classifier confidence 0–1"),
-#     duration_seconds: float = Form(..., description="Audio clip length in seconds"),
-#     audio_file: UploadFile   = File(..., description="WAV audio clip (~5–10 seconds)"),
-#     # ── Injected ─────────────────────────────────────────────────────────────
-#     db:       Session = Depends(get_db),
-#     pipeline            = Depends(get_pipeline),
-# ):
-#     """
-#     Entry point for Lee's edge device.
-
-#     The ESP32 sends this after its onboard scream detection fires.
-#     Your cloud then runs Module 1 (VAD + capture) → Module 2 (STT + NLP)
-#     and pushes an alert to the dashboard if the threat score is high enough.
-#     """
-#     audio_bytes = await audio_file.read()
-
-#     result = await pipeline.process(
-#         db              = db,
-#         audio_bytes     = audio_bytes,
-#         filename        = audio_file.filename or "audio.wav",
-#         device_id       = device_id,
-#         location_id     = location_id,
-#         timestamp_str   = timestamp,
-#         intensity       = intensity,
-#         pitch           = pitch,
-#         edge_confidence = confidence_score,
-#         duration_hint   = duration_seconds,
-#     )
-#     return result
-
-
-# @router.get(
-#     "/{event_id}/audio",
-#     summary="Stream audio clip for dashboard playback",
-# )
-# async def stream_audio(
-#     event_id: str,
-#     db:       Session = Depends(get_db),
-#     storage             = Depends(get_audio_storage),
-# ):
-#     """Dashboard calls this to play back the audio for an incident.
-
-#     Serves the clip from Supabase Storage when it was uploaded there, otherwise
-#     streams the local file — transparent to the caller either way.
-#     """
-#     event = db.query(Event).filter(Event.event_id == event_id).first()
-#     if not event:
-#         raise HTTPException(404, "Event not found")
-
-#     clip = db.query(AudioClip).filter(AudioClip.event_id == event_id).first()
-#     if not clip or not clip.file_path:
-#         raise HTTPException(404, "Audio clip not found")
-
-#     # Remote (Supabase) clip → fetch bytes and stream them through our endpoint.
-#     if storage.is_remote(clip.file_path):
-#         data = storage.get_bytes(clip.file_path)
-#         if data is None:
-#             raise HTTPException(404, "Audio clip not found")
-#         return StreamingResponse(
-#             io.BytesIO(data),
-#             media_type = "audio/wav",
-#             headers    = {"Content-Disposition": f'inline; filename="incident_{event_id}.wav"'},
-#         )
-
-#     # Local clip → serve straight off disk.
-#     if not os.path.exists(clip.file_path):
-#         raise HTTPException(404, "Audio clip not found")
-#     return FileResponse(
-#         clip.file_path,
-#         media_type = "audio/wav",
-#         filename   = f"incident_{event_id}.wav",
-#     )
-
 """
 api/events.py
 ═══════════════════════════════════════════════════════
@@ -149,23 +34,13 @@ from services.audio_capture_service import AudioCaptureService
 from services.scream_analyzer import ScreamAnalyzer
 from utils.rate_limit import limiter
 
+METADATA_CACHE = {}
+
 router = APIRouter(prefix="/api/events", tags=["Module 1+2 — Audio Ingestion"])
 logger = logging.getLogger(__name__)
 
 # Initialize your Scream Analyzer
 _analyzer = ScreamAnalyzer()
-
-
-# ────────────────────────────────────────────────────────────────
-# Load Supabase configuration from .env
-# ────────────────────────────────────────────────────────────────
-# cfg = get_settings()
-# supabase_client: Client = create_client(
-#     cfg.supabase_url,
-#     cfg.supabase_service_key
-# )
-# BUCKET_NAME = cfg.supabase_bucket
-
 
 @router.post(
     "/audio",
@@ -273,60 +148,6 @@ async def receive_audio_event(
         db.commit()
         db.refresh(clip)
         
-        # ── Step 5 (OLD): If scream detected, create alert and broadcast ─────────
-        # alert_fired = False
-        # alert_id = None
-        #
-        # if is_scream:
-        #     severity = "high" if confidence > 0.7 else ("medium" if confidence > 0.4 else "low")
-        #
-        #     alert_id = str(uuid.uuid4())
-        #     alert = Alert(
-        #         alert_id=alert_id,
-        #         event_id=event_id,
-        #         severity=severity,
-        #         status="active",
-        #         created_at=datetime.utcnow()
-        #     )
-        #     db.add(alert)
-        #     db.commit()
-        #     db.refresh(alert)
-        #     alert_fired = True
-        #
-        #     location = db.query(Location).filter(Location.location_id == location_id).first()
-        #     location_name = location.location_name if location else location_id
-        #
-        #     logger.warning(f"[Audio] 🚨 ALERT FIRED! severity={severity}, confidence={confidence:.3f}")
-        #
-        #     # Broadcast via WebSocket
-        #     try:
-        #         ws_manager = get_ws_manager()
-        #         await ws_manager.broadcast_alert(
-        #             alert_id=alert_id,
-        #             event_id=event_id,
-        #             location_name=location_name,
-        #             severity=severity,
-        #             threat_score=confidence,
-        #             classification="scream" if is_scream else "noise",
-        #             transcript=f"Scream detected with {confidence:.1%} confidence",
-        #             audio_url=f"/api/events/{event_id}/audio",
-        #             timestamp=event_timestamp.isoformat()
-        #         )
-        #         logger.info(f"[Audio] WebSocket broadcast sent")
-        #     except Exception as e:
-        #         logger.error(f"[Audio] WebSocket broadcast failed: {e}")
-        #
-        # # ── Step 6 (OLD): Return response to ESP32 ──────────────────────────────
-        # return {
-        #     "status": "success",
-        #     "event_id": event_id,
-        #     "is_scream": is_scream,
-        #     "confidence": confidence,
-        #     "alert_fired": alert_fired,
-        #     "alert_id": alert_id,
-        #     "message": "Scream detected!" if is_scream else "No scream detected"
-        # }
-
         # ── Step 5: Run STT + NLP pipeline, apply alert rule, broadcast ──────────
         pipeline_result = await pipeline.process_stored_audio(
             db=db,
@@ -420,62 +241,7 @@ async def stream_audio(
             "Cache-Control":       "no-cache",
         },
     )
-
-
-    # # If it's just a filename (e.g., "abc123.wav") or has incidents/ prefix
-    # if file_path.endswith(".wav"):
-    #     # Try with supabase:// prefix
-    #     audio_bytes = audio_storage.get_bytes(f"supabase://audio-clips/{file_path}")
-    #     if audio_bytes:
-    #         return StreamingResponse(
-    #             io.BytesIO(audio_bytes),
-    #             media_type="audio/wav",
-    #             headers={"Content-Disposition": f"attachment; filename={event_id}.wav"}
-    #         )
-    #     # If that fails, try without any prefix (plain filename)
-    #     audio_bytes = audio_storage.get_bytes(file_path)
-    #     if audio_bytes:
-    #         return StreamingResponse(
-    #             io.BytesIO(audio_bytes),
-    #             media_type="audio/wav",
-    #             headers={"Content-Disposition": f"attachment; filename={event_id}.wav"}
-    #         )
-    #     raise HTTPException(404, "Audio file not found in storage")
-
-    # if file_path.startswith("supabase://"):
-    #     object_key = file_path.split("/", 3)[-1]   # strip "supabase://audio-clips/"
-
-    # elif file_path.endswith(".wav") and "/" not in file_path:
-    #     object_key = file_path
-
-    # # ── Old local records (Windows backslash path) — serve from disk ──────
-    # elif "\\" in file_path or (not file_path.startswith("supabase://") and not file_path.startswith("incidents/")):
-    #     from fastapi.responses import FileResponse
-    #     if not os.path.exists(file_path):
-    #         raise HTTPException(404, "Local audio file no longer exists")
-    #     return FileResponse(file_path, media_type="audio/wav", filename=f"{event_id}.wav")
-
-    # # else:
-    # #     object_key = file_path                      # already a plain key
-    # else:
-    #     raise HTTPException(404, f"Unrecognized file path format: {file_path}")
     
-
-    try:
-        audio_bytes = audio_storage.get_bytes(f"supabase://audio-clips/{file_path}")
-        if not audio_bytes:
-            raise HTTPException(404, "Audio file not found in Supabase")
-        return StreamingResponse(
-            io.BytesIO(audio_bytes),
-            media_type="audio/wav",
-            headers={"Content-Disposition": f"attachment; filename={event_id}.wav"}
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error streaming audio from Supabase for event {event_id}")
-        raise HTTPException(500, "Failed to retrieve audio")
-
 
 @router.get(
     "/all",
@@ -602,6 +368,59 @@ async def supabase_storage_webhook(
         
         logger.info(f"[Webhook] New file uploaded: {file_name} to bucket: {bucket_name}")
         
+        # ── Handle metadata JSON file ──────────────────────────────────────
+        if file_name.endswith('.json'):
+            logger.info(f"[Webhook] Received metadata file: {file_name}")
+            # Download and parse metadata
+            try:
+                json_bytes = audio_storage.get_bytes(f"supabase://audio-clips/{file_name}")
+                if json_bytes:
+                    import json
+                    metadata = json.loads(json_bytes)
+                    # Store metadata in a dictionary for later use
+                    # We'll associate it with the .wav file when it arrives
+                    uuid_base = file_name.replace('.json', '')
+                    # Store in a temporary cache or database
+                    METADATA_CACHE[uuid_base] = metadata  
+                    # logger.info(f"[Webhook] Metadata: {metadata}")
+
+                    # ⭐ UPDATE THE EXISTING EVENT!
+                    # Find the event by the WAV filename
+                    wav_file_name = f"{uuid_base}.wav"
+                    clip = db.query(AudioClip).filter(AudioClip.file_path == wav_file_name).first()
+                    
+                    if clip:
+                        event = db.query(Event).filter(Event.event_id == clip.event_id).first()
+                        if event:
+                            # Update with correct values
+                            event.intensity = float(metadata.get("sound_level", 0))
+                            
+                            # Parse timestamp
+                            timestamp_str = metadata.get("timestamp", "")
+                            if timestamp_str:
+                                try:
+                                    event_timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+                                    if event_timestamp.tzinfo is not None:
+                                        event_timestamp = event_timestamp.astimezone(datetime.timezone.utc)
+                                    event.timestamp = event_timestamp
+                                    logger.info(f"[Webhook] Updated Event {event.event_id} with timestamp {event_timestamp} and intensity {event.intensity}")
+                                except Exception as e:
+                                    logger.warning(f"[Webhook] Failed to parse timestamp: {e}")
+                            
+                            db.commit()
+                            logger.info(f"[Webhook] ✅ Updated Event with metadata from JSON")
+
+
+                    # For simplicity, we'll return early since .wav will trigger separately
+                    return {
+                        "status": "success",
+                        "message": "Metadata cached and Event updated ",
+                        "metadata": metadata
+                    }
+            except Exception as e:
+                logger.error(f"[Webhook] Failed to process metadata: {e}")
+                return {"status": "error", "message": str(e)}
+
         # ── Check if this is an audio file ───────────────────────────────────
         if not file_name.endswith('.wav'):
             logger.info(f"[Webhook] Skipping non-audio file: {file_name}")
@@ -615,17 +434,54 @@ async def supabase_storage_webhook(
             logger.info(f"[Webhook] File already processed, skipping: {file_name}")
             return {"status": "skipped", "message": "File already processed"}
 
-        # ── Extract device info from filename ────────────────────────────────
-        # Filename format: esp32-001_20260629T155300Z.wav
-        # OR: 1ea33c87-35db-40a3-903e-d1e512fe5c4a.wav (UUID)
-        device_id = "esp32-001"  # Default fallback
-        location_id = "loc-toilet-a"
+        # ── Extract UUID from filename ──────────────────────────────────────
+        uuid_base = file_name.replace('.wav', '')
         
-        # Try to extract device ID from filename if using old format
-        if file_name.startswith("esp32-"):
-            parts = file_name.split('_')
-            if len(parts) >= 1:
-                device_id = parts[0]
+        # Define default fallbacks 
+        device_id = "esp32-001"
+        location_id = "loc-toilet-a"
+        sound_level = 0
+        timestamp_str = ""
+
+        metadata = METADATA_CACHE.pop(uuid_base, None)  # ✅ Retrieve and remove
+
+        # ── Try to get metadata from JSON file ──────────────────────────────
+        if metadata:
+            device_id = metadata.get("device_id", device_id)
+            location_id = metadata.get("location_id", location_id)
+            sound_level = float(metadata.get("sound_level", 0))
+            timestamp_str = metadata.get("timestamp", "")
+            logger.info(f"[Webhook] Using cached metadata for {file_name}: {metadata}")
+        else:
+            # Try to fetch the JSON metadata file
+            json_file_name = f"{uuid_base}.json"
+            try:
+                json_bytes = audio_storage.get_bytes(f"supabase://audio-clips/{json_file_name}")
+                if json_bytes:
+                    import json
+                    metadata = json.loads(json_bytes)
+                    device_id = metadata.get("device_id", device_id)
+                    location_id = metadata.get("location_id", location_id)
+                    sound_level = float(metadata.get("sound_level", 0))
+                    timestamp_str = metadata.get("timestamp", "")
+                    logger.info(f"[Webhook] Found metadata for {file_name}: {metadata}")
+                else:
+                    logger.warning(f"[Webhook] No metadata file found for {file_name}")
+            except Exception as e:
+                logger.warning(f"[Webhook] Could not load metadata: {e}")
+
+
+        # # ── Extract device info from filename ────────────────────────────────
+        # # Filename format: esp32-001_20260629T155300Z.wav
+        # # OR: 1ea33c87-35db-40a3-903e-d1e512fe5c4a.wav (UUID)
+        # device_id = "esp32-001"  # Default fallback
+        # location_id = "loc-toilet-a"
+
+        # # Try to extract device ID from filename if using old format
+        # if file_name.startswith("esp32-"):
+        #     parts = file_name.split('_')
+        #     if len(parts) >= 1:
+        #         device_id = parts[0]
         
         # ── Download audio from Supabase ──────────────────────────────────────
         try:
@@ -649,11 +505,22 @@ async def supabase_storage_webhook(
         
         logger.info(f"[Webhook] Analysis result: is_scream={is_scream}, confidence={confidence:.3f}")
         
-        # ── Extract timestamp from filename OR use current time ──────────────
-        # If filename is UUID, we need to get timestamp from file metadata
-        # For now, use current time
+        # # ── Extract timestamp from filename OR use current time ──────────────
+        # # If filename is UUID, we need to get timestamp from file metadata
+        # # For now, use current time
+        # event_timestamp = datetime.utcnow()
+        # ── Parse timestamp ──────────────────────────────────────────────────
         event_timestamp = datetime.utcnow()
-        
+        if timestamp_str:
+            try:
+                event_timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+                if event_timestamp.tzinfo is not None:
+                    event_timestamp = event_timestamp.astimezone(datetime.timezone.utc)
+                logger.info(f"[Webhook] Parsed timestamp: {timestamp_str} → UTC: {event_timestamp}")
+            except Exception as e:
+                logger.warning(f"[Webhook] Failed to parse timestamp '{timestamp_str}': {e}")
+                event_timestamp = datetime.utcnow()
+
         # ── Save to database ──────────────────────────────────────────────────
         event_id = str(uuid.uuid4())
         
@@ -674,7 +541,9 @@ async def supabase_storage_webhook(
             event_id=event_id,
             device_id=device_id,
             timestamp=event_timestamp,
-            intensity=0.0,  # Not calculated on ESP
+            # timestamp=timestamp,
+            # intensity=0.0,  # Not calculated on ESP
+            intensity=float(sound_level) if sound_level else 0.0,  
             pitch=0.0,      # Not calculated on ESP
             confidence_score=confidence
         )
@@ -687,7 +556,7 @@ async def supabase_storage_webhook(
             clip_id=str(uuid.uuid4()),
             event_id=event_id,
             file_path=file_name,  # Supabase path
-            duration=0.0
+            duration=8.0
         )
         db.add(clip)
         db.commit()
