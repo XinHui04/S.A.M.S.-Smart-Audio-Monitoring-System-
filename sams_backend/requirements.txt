@@ -37,6 +37,9 @@ websockets==12.0
 # Module 4: MQTT publisher for real-time alert fan-out (Figs 4.1/4.2 of the report)
 paho-mqtt==1.6.1
 
+# Module 4: Web Push notifications (FR9/FR12) — VAPID-authenticated push to browsers
+pywebpush==2.3.0
+
 # Config + utils
 pydantic==2.7.1
 pydantic-settings==2.2.1

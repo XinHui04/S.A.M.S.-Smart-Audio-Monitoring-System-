@@ -86,6 +86,28 @@ class Settings(BaseSettings):
     mqtt_use_tls:     bool = False
     mqtt_qos:         int  = 1
 
+    # FR29 — device liveness: a device is reported "online" on the dashboard
+    # when its last heartbeat/ingestion is within this many seconds of now.
+    device_offline_after_seconds: int = 300
+
+    # Web Push (FR9/FR12) — VAPID application-server keys. Push is silently
+    # disabled (no error, notifications just aren't sent) when either key is
+    # empty. Generate a keypair with:
+    #   python -c "from py_vapid import Vapid02; from py_vapid.utils import b64urlencode; from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat; v = Vapid02(); v.generate_keys(); priv = v.private_key.private_numbers().private_value.to_bytes(32, 'big'); pub = v.public_key.public_bytes(Encoding.X962, PublicFormat.UncompressedPoint); print('VAPID_PRIVATE_KEY=' + b64urlencode(priv)); print('VAPID_PUBLIC_KEY=' + b64urlencode(pub))"
+    # (verified against py_vapid==1.9.4 / pywebpush==2.3.0 — the printed
+    # VAPID_PRIVATE_KEY round-trips via Vapid.from_string() to the same
+    # VAPID_PUBLIC_KEY, which is also the browser-side applicationServerKey.)
+    vapid_public_key:  str = ""
+    vapid_private_key: str = ""
+    vapid_subject:     str = "mailto:admin@school.edu.my"
+
+    # FR30 — staff zone check-in: how long a voluntary check-in stays "live"
+    # before it is treated as stale. Stale check-ins are ignored by the
+    # nearest-staff ranking (utils/nearest_staff.py falls back to the staff
+    # member's static StaffLocation assignments) and the check-in API reports
+    # them as expired so the PWA can grey them out.
+    checkin_ttl_seconds: int = 7200
+
     class Config:
         env_file = ".env"
         case_sensitive = False

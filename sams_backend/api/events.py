@@ -143,7 +143,9 @@ from api.dependencies import (
     get_current_user,
     get_current_user_query_ok,
     verify_device_key,
+    verify_device_key_form,
 )
+from api.devices import touch_device_heartbeat
 from services.storage_service import AudioStorageService
 from services.audio_capture_service import AudioCaptureService
 from services.scream_analyzer import ScreamAnalyzer
@@ -170,7 +172,10 @@ _analyzer = ScreamAnalyzer()
 @router.post(
     "/audio",
     summary="[ESP32] Notify backend after uploading audio to Supabase",
-    dependencies=[Depends(verify_device_key)],   # devices use X-API-Key, not JWT
+    # Device-aware key gate (FR25): reads device_id from the form so it can
+    # enforce a per-device key when the device is enrolled, falling back to the
+    # global DEVICE_API_KEY otherwise. Runs before body validation (401 first).
+    dependencies=[Depends(verify_device_key_form)],   # devices use X-API-Key, not JWT
 )
 @limiter.limit("30/minute")   # abuse protection — per client IP
 async def receive_audio_event(
@@ -248,7 +253,10 @@ async def receive_audio_event(
             db.add(device)
             db.commit()
             db.refresh(device)
-        
+
+        # FR29: this successful ingestion is also a liveness signal.
+        touch_device_heartbeat(db, device_id)
+
         # Create event
         event = Event(
             event_id=event_id,

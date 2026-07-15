@@ -105,6 +105,7 @@ class WebSocketManager:
         stt_confidence:     float = None,   # 0–1, Whisper transcription confidence
         nlp_confidence:     float = None,   # 0–1, raw NLP toxicity probability (pre-boost)
         scream_confidence:  float = None,   # 0–1, scream detection confidence
+        nearest_staff:      list  = None,   # FR30 display-side hint — routing unchanged
     ):
         sent = await self._broadcast({
             "type":           "ALERT",
@@ -123,6 +124,7 @@ class WebSocketManager:
             "stt_confidence":     stt_confidence,
             "nlp_confidence":     nlp_confidence,
             "scream_confidence":  scream_confidence,
+            "nearest_staff":      nearest_staff,   # FR30 — read-only, may be None
         }, location_id=location_id)
         logger.info(
             f"WS broadcast: ALERT severity={severity} location={location_id or 'ALL'} "

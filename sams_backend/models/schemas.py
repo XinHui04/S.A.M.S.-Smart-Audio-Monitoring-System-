@@ -2,7 +2,7 @@
 models/schemas.py
 Pydantic v2 schemas — what the API accepts and returns.
 """
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional
 from datetime import datetime
 
@@ -97,6 +97,62 @@ class StaffLocationsUpdate(BaseModel):
     """FR16: replaces a staff user's location assignments (empty = unrestricted)."""
     location_ids: list[str] = Field(..., description="Location IDs assigned to the user")
 
+
+class StaffCreate(BaseModel):
+    """Admin-only: create a new staff/admin account (with optional FR16 assignments)."""
+    name:     str = Field(..., description="Display name")
+    email:    EmailStr = Field(..., description="Login email (stored lowercase)")
+    password: str = Field(..., min_length=8, max_length=128,
+                          description="Plaintext password (bcrypt-hashed before storage)")
+    role:     str = Field("staff", description="staff | admin")
+    location_ids: list[str] = Field(default_factory=list,
+                                    description="Optional initial FR16 location assignments")
+
+    @field_validator("name")
+    @classmethod
+    def _name_not_blank(cls, v: str) -> str:
+        v = v.strip()
+        if not (1 <= len(v) <= 100):
+            raise ValueError("name must be 1-100 characters after trimming")
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def _password_complexity(cls, v: str) -> str:
+        # Never echo the password back in the error message.
+        if not any(c.isalpha() for c in v):
+            raise ValueError("password must contain at least one letter")
+        if not any(c.isdigit() for c in v):
+            raise ValueError("password must contain at least one digit")
+        return v
+
+    @field_validator("role")
+    @classmethod
+    def _role_allowed(cls, v: str) -> str:
+        v = v.strip().lower()
+        if v not in {"staff", "admin"}:
+            raise ValueError("role must be 'staff' or 'admin'")
+        return v
+
+
+# ─── Devices (FR25 / FR29) ───────────────────────────────────────────────────
+
+# device_id is echoed into logs and used as DB/object-key material, so it is
+# constrained to a safe charset (blocks log-injection / control chars) and a
+# sane length. Mirrors api/devices.py's validate_device_id.
+_DEVICE_ID_PATTERN = r"^[A-Za-z0-9_-]+$"
+
+class DeviceCreate(BaseModel):
+    """FR29: admin registers a new device at a location."""
+    device_id:   str = Field(..., min_length=1, max_length=64, pattern=_DEVICE_ID_PATTERN)
+    location_id: str = Field(..., min_length=1, description="Existing location ID")
+    status:      Optional[str] = Field(None, description="online | offline | error")
+
+class DeviceUpdate(BaseModel):
+    """FR29: admin updates a device's location and/or stored status."""
+    location_id: Optional[str] = Field(None, description="Existing location ID")
+    status:      Optional[str] = Field(None, description="online | offline | error")
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type:   str = "bearer"
@@ -123,3 +179,42 @@ class ReportOut(BaseModel):
     generated_date: datetime
     summary:        IncidentSummary
     hotspots:       list[HotspotLocation]
+
+
+# ─── Web Push (FR9 / FR12) ───────────────────────────────────────────────────
+
+class PushKeys(BaseModel):
+    """Browser-supplied encryption keys from the PushSubscription object."""
+    p256dh: str = Field(..., min_length=1, max_length=256)
+    auth:   str = Field(..., min_length=1, max_length=64)
+
+
+class PushSubscribeRequest(BaseModel):
+    """
+    Body of POST /api/push/subscribe — the browser's PushSubscription.
+    endpoint is validated to be an https:// URL of a sane length (it is the push
+    service address the server will POST to; must never be attacker-controlled
+    http/other-scheme).
+    """
+    endpoint: str = Field(..., min_length=1, max_length=1024)
+    keys:     PushKeys
+
+    @field_validator("endpoint")
+    @classmethod
+    def _must_be_https(cls, v: str) -> str:
+        if not v.startswith("https://"):
+            raise ValueError("endpoint must be an https:// URL")
+        return v
+
+
+class PushUnsubscribeRequest(BaseModel):
+    """Body of DELETE /api/push/subscribe."""
+    endpoint: str = Field(..., min_length=1, max_length=1024)
+
+
+# ─── Staff Zone Check-in (FR30) ──────────────────────────────────────────────
+
+class CheckinRequest(BaseModel):
+    """Body of PUT /api/staff/checkin — the zone the caller is checking into."""
+    location_id: str = Field(..., min_length=1, max_length=64,
+                              description="Existing location ID")

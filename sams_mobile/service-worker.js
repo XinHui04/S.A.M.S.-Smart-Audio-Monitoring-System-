@@ -9,7 +9,7 @@
    Scope is limited to /m/ because the worker is served from /m/.
    ────────────────────────────────────────────────────────────────────────── */
 
-const CACHE = 'sams-teacher-v3';   // bumped: alert acknowledge (FR17)
+const CACHE = 'sams-teacher-v4';   // bumped: Web Push notifications (FR9/FR12)
 
 // App-shell assets to precache. Paths are absolute under the /m/ scope.
 const SHELL = [
@@ -76,4 +76,53 @@ self.addEventListener('fetch', (event) => {
       }).catch(() => cached))
     );
   }
+});
+
+// ── Web Push (FR9/FR12) — deliver alerts while the app is closed ────────────
+// The server sends a minimal payload (no transcript, no PII beyond location):
+//   {"type":"ALERT","alert_id","severity","location_name","timestamp"}
+// Anything else (or malformed JSON) is defensively ignored — a push handler
+// that throws would crash the worker's event, so every step is guarded.
+self.addEventListener('push', (event) => {
+  let msg = null;
+  try { msg = event.data ? event.data.json() : null; } catch { msg = null; }
+  if (!msg || msg.type !== 'ALERT' || !msg.alert_id) return;
+
+  const severity = (msg.severity || 'low').toLowerCase();
+  const title = `🚨 SAMS ALERT — ${severity.toUpperCase()}`;
+  const time = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '';
+  const body = `${msg.location_name || 'Unknown location'}${time ? ' · ' + time : ''}`;
+  const isHigh = severity === 'high';
+
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      icon: '/m/icons/icon-192.png',
+      badge: '/m/icons/icon-192.png',
+      tag: msg.alert_id,               // dedupe repeat pushes for the same alert
+      data: { alert_id: msg.alert_id },
+      vibrate: isHigh ? [200, 80, 200] : [150],
+      requireInteraction: isHigh,
+    })
+  );
+});
+
+// Tapping a notification: focus an already-open tab and hand it the alert id
+// via postMessage, or open a fresh tab pointed at it via the URL hash.
+self.addEventListener('notificationclick', (event) => {
+  const alertId = event.notification?.data?.alert_id;
+  event.notification.close();
+  if (!alertId) return;
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      const existing = clientList.find((c) => c.url.includes('/m/'));
+      if (existing) {
+        existing.focus();
+        existing.postMessage({ type: 'OPEN_ALERT', alert_id: alertId });
+        return;
+      }
+      return self.clients.openWindow('/m/#alert=' + encodeURIComponent(alertId));
+    })
+  );
 });

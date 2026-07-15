@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from config.settings import get_settings
@@ -46,7 +47,10 @@ async def login(request: Request, body: LoginRequest, db: Session = Depends(get_
         logger.error("Login attempted but JWT_SECRET_KEY is not configured — set it in .env")
         raise HTTPException(503, "Authentication not configured")
 
-    user = db.query(User).filter(User.email == body.email).first()
+    # Case-insensitive lookup: stored emails are lowercase (seed + admin-created),
+    # so lowercasing the submitted email lets a case-mismatched login still match
+    # without changing which account resolves.
+    user = db.query(User).filter(func.lower(User.email) == body.email.strip().lower()).first()
     # Same generic message whether the email is unknown or the password is
     # wrong — prevents user enumeration.
     if not user or not verify_password(body.password, user.hashed_password):

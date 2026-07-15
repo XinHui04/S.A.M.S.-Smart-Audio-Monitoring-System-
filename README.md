@@ -22,10 +22,10 @@ sams_final/
 │   ├── requirements.txt
 │   ├── .env.example             Copy to .env and configure
 │   ├── simulate_edge.py         Stand-in for the ESP32 device (OUTDATED — see §11)
-│   ├── api/                     auth.py (JWT login) · events.py · alerts.py · analytics.py · reports.py · admin.py · dependencies.py
-│   ├── services/                stt · nlp · ser · mqtt · audio_capture · processing_pipeline · websocket_manager · storage
+│   ├── api/                     auth.py (JWT login) · events.py · alerts.py · analytics.py · reports.py · admin.py · devices.py (FR25/FR29) · push.py (FR9/FR12) · dependencies.py
+│   ├── services/                stt · nlp · ser · mqtt · audio_capture · processing_pipeline · websocket_manager · storage · push_service.py
 │   ├── models/                  database.py (ORM/ERD) · schemas.py (Pydantic)
-│   ├── utils/                   auth.py (bcrypt) · seed_db.py (demo data)
+│   ├── utils/                   auth.py (bcrypt) · seed_db.py (demo data) · nearest_staff.py (FR30) · rate_limit.py
 │   ├── config/                  settings.py (env config)
 │   └── tests/                   pytest suite
 ├── sams_dashboard/              Central monitoring dashboard (web, for disciplinary staff)
@@ -114,6 +114,11 @@ its firmware sends the header.
 
 Leave `MQTT_ENABLED=false` unless you've set up Mosquitto (see §6).
 
+Optional hardening: set `CHECKIN_TTL_SECONDS=7200` (or another value in
+seconds) to tune how long a staff check-in to a zone remains valid before
+expiring — teachers must check out (`DELETE /api/staff/checkin`) or check
+in again after expiry. Default is 7200 seconds (2 hours).
+
 ### 3.3 Seed the database
 
 ```powershell
@@ -123,7 +128,8 @@ Leave `MQTT_ENABLED=false` unless you've set up Mosquitto (see §6).
 Creates 6 school locations (toilet blocks, stairwells, corridors), 6 ESP32
 devices, and two demo users. The staff user is assigned to `loc-001` and
 `loc-003` (FR16 alert routing — she only receives alerts from those
-locations; the admin sees everything):
+locations; the admin sees everything). Additional staff accounts can later be
+created from the dashboard **Staff** tab (§4.6) without reseeding:
 
 | Email | Password | Role |
 |---|---|---|
@@ -196,6 +202,57 @@ see all alerts; staff with assignments see only alerts from their locations
 everything (fail-open by design, so an unassigned account is never blind).
 Assignments are managed via the admin-only API in §9.
 
+### 4.4 Device map & registry (FR28/FR29)
+
+The **Devices** tab shows every registered device on a schematic school map
+plus a table view. Each device's dot is placed at its location's `map_x`/`map_y`
+(0–100% of the canvas, from the `location_positions` table) and colored by its
+**derived** online/offline status — never trusted from the wire:
+
+- If the device has ever sent a heartbeat/ingestion, status is `"online"` when
+  the last one was within `DEVICE_OFFLINE_AFTER_SECONDS` (default `300`) of
+  now, else `"offline"`.
+- If it has never been seen, status falls back to the device's **stored**
+  `status` column (set at registration, or by an admin edit).
+
+Admins can **register** a new device (`device_id` + `location_id`, optional
+initial status), **edit** its location/status, and **issue/rotate/revoke** its
+per-device API key — all from the Devices tab (calls the admin API in §9).
+
+The ESP32 firmware can call `POST /api/devices/heartbeat` on a timer (form or
+JSON body with `device_id`, optional `X-API-Key`) purely to prove liveness
+between audio events; a device that only ever uploads clips still shows
+correctly because every `/api/events/audio` ingestion also touches the same
+heartbeat marker.
+
+### 4.5 Per-device API keys (FR25)
+
+Each device can optionally get its own API key (independent of the global
+`DEVICE_API_KEY`): **Admin → Devices tab → Issue key**. The plaintext key is
+shown **once**, at issuance — copy it straight into that device's
+`sams_iot/secrets.h` — the backend stores only its SHA-256 hash and can never
+display it again (rotating issues a new key and overwrites the old hash;
+revoking deletes the credential row).
+
+Once a device has a credential row it is **fail-closed**: every request
+carrying that `device_id` (heartbeat or audio ingestion) must present the
+matching `X-API-Key`, regardless of the global `DEVICE_API_KEY` setting. A
+device with **no** credential row falls back to the global-key behavior
+(§3.2) — required only if `DEVICE_API_KEY` is set, otherwise open (demo
+continuity). The 401 detail is identical whether a device is enrolled or not,
+so a caller can't probe which devices have keys.
+
+### 4.6 Staff accounts & zone assignments
+
+The **Staff** tab (admin-only) lists all users with their roles and current
+zone assignments. Admins can create new staff accounts directly from the UI:
+**Add account** form takes name, email, password (minimum 8 characters, must
+contain at least one letter and one digit), role (staff/admin), and optional
+location assignments (FR16). Passwords are bcrypt-hashed and never stored in
+plaintext; the creating admin sets the initial password only once. New accounts
+can also be edited to reassign zones without requiring database access — simply
+click **Edit zones** per user, tick/untick location checkboxes, and save.
+
 ---
 
 ## 5. Teacher phone app (PWA) — setup on your phone
@@ -255,6 +312,58 @@ context* (`https://` or `localhost`). To install for a demo:
   to get an `https://…` URL, then install with no flags.
 - **Or on the PC:** open `http://localhost:8000/m/` in desktop Chrome and install
   there (localhost is already a secure context).
+
+### 5.6 Push notifications while the app is closed (FR9/FR12)
+
+The bell button (top of the PWA) toggles **Web Push** so a teacher still gets
+alerted when the app/tab is closed. Generate a VAPID keypair once and put both
+values in `.env`:
+
+```powershell
+python -c "from py_vapid import Vapid02; from py_vapid.utils import b64urlencode; from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat; v = Vapid02(); v.generate_keys(); priv = v.private_key.private_numbers().private_value.to_bytes(32, 'big'); pub = v.public_key.public_bytes(Encoding.X962, PublicFormat.UncompressedPoint); print('VAPID_PRIVATE_KEY=' + b64urlencode(priv)); print('VAPID_PUBLIC_KEY=' + b64urlencode(pub))"
+```
+
+```env
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=mailto:admin@school.edu.my
+```
+
+(Verified against `py_vapid==1.9.4` / `pywebpush==2.3.0` — the printed
+`VAPID_PRIVATE_KEY` round-trips via `Vapid.from_string()` to the same
+`VAPID_PUBLIC_KEY`, which is also the browser's `applicationServerKey`.) Push
+is silently disabled — no error, notifications just aren't sent — while
+either key is empty; the bell shows **unavailable** in that case.
+
+Tapping the bell asks the browser for notification permission once, then
+subscribes via `POST /api/push/subscribe` (JWT-protected, upserts by
+endpoint); tapping again unsubscribes (`DELETE /api/push/subscribe`, owner-
+only — a non-owner gets 404, not 403, so subscriptions aren't enumerable).
+`GET /api/push/public-key` hands the browser the VAPID public key plus an
+`enabled` flag. When an alert fires, `PushService.send_alert` fans it out to
+every subscribed staff member the FR16 routing rule (§4.3) would deliver to,
+with a **minimal payload** — severity, location, alert/event IDs — no
+transcript and no threat score, so the notification itself never carries
+sensitive content. Expired browser subscriptions (410 from the push service)
+are pruned automatically.
+
+Like the rest of the PWA, subscribing requires a *secure context*
+(`https://` or `localhost`) — see §5.5 for LAN-demo workarounds (Chrome flag
+or a tunnel) if the bell shows unavailable over a plain `http://<LAN-IP>` URL.
+
+Alert details also surface **FR30 nearest-staff**: the alert detail view
+lists up to 3 staff ranked by straight-line distance from the alert's
+location on the schematic map (§4.4), with the assigned-here member always
+ranked first at distance 0 — read-only, it does not change who actually
+receives the alert (that's still FR16, §4.3). Teachers can optionally
+**check in to a zone** via a card at the top of the PWA (pick a location →
+PUT /api/staff/checkin) to signal their current zone; fresh check-ins
+**override** FR16 location assignments in nearest-staff ranking, and a
+checked-in teacher with no static assignments becomes rankable. Check-ins
+carry a `checked_in` flag shown as "· checked in" on the dashboard and
+badges, and expire after `CHECKIN_TTL_SECONDS` (default 7200 in `.env`).
+Check out via DELETE /api/staff/checkin. Privacy is zone-level only,
+voluntary, and per-user single-row (no history, no GPS).
 
 ---
 
@@ -368,12 +477,19 @@ cd sams_backend
 .\.venv\Scripts\python.exe -m pytest tests/ -v
 ```
 
-~70 tests: MQTT service, NLP threat classifier, the STT→NLP processing
+186 tests: MQTT service, NLP threat classifier, the STT→NLP processing
 pipeline (mocked AI, in-memory DB), the JWT auth layer (login, token expiry,
-route protection, device API key, resolver stamping), FR16 alert routing
-(feed + WebSocket filtering, admin assignment API), FR13 reports
-(generation, summaries, CSV export), and SER emotion analysis (boost logic,
-settings, storage).
+route protection, global device API key, resolver stamping), staff account
+creation and password validation, FR16 alert routing (feed + WebSocket
+filtering, admin assignment API), FR13 reports (generation, summaries, CSV
+export), SER emotion analysis (boost logic, settings, storage), IP-based rate
+limiting (login + ingestion), FR25/FR29 device registry and per-device API
+keys (derived online/offline status, heartbeat auth — enrolled fail-closed /
+un-enrolled fail-open, admin register/update/key issue/revoke, ingestion-path
+regression), FR30 nearest-staff ranking (including check-in TTL, zone override
+of static assignments, checked_in flag), and FR9/FR12 Web Push
+(subscribe/unsubscribe ownership, FR16-filtered minimal-payload fan-out, 410
+pruning).
 
 ---
 
@@ -437,10 +553,59 @@ GET  /api/reports/{id}                   summary: totals, severity/status
 GET  /api/reports/{id}/export.csv        CSV download (formula-injection-safe)
 ```
 
-**Admin — staff location assignments (FR16)** — admin-only (staff get 403)
+**Admin — staff account & location management** — admin-only (staff get 403)
 ```
+POST /api/admin/staff                          { "name": "…", "email": "…",
+                                                  "password": "…",
+                                                  "role": "staff" | "admin",
+                                                  "location_ids": ["…"]? }
+                                               → 201 (duplicate email → 409;
+                                               password hashed, email lowercased,
+                                               login is case-insensitive)
+
 GET  /api/admin/staff                          staff list with assignments
 PUT  /api/admin/staff/{user_id}/locations      { "location_ids": ["loc-001", …] }
+```
+
+**Devices (FR25/FR29)** — staff can list; admin CRUD/key ops are admin-only (staff get 403)
+```
+GET    /api/devices/                     staff — every device with derived
+                                         online/offline status (heartbeat
+                                         freshness vs stored fallback),
+                                         map_x/map_y, has_credential
+                                         (never the key hash)
+POST   /api/devices/heartbeat            [ESP32] { "device_id": "…" } — liveness
+                                         ping; unknown device → 404; per-device
+                                         X-API-Key required only if enrolled
+                                         Header (only when the device is
+                                         enrolled, or DEVICE_API_KEY is set):
+                                         X-API-Key: <key>
+
+POST   /api/admin/devices                admin-only — register a device
+                                         { "device_id", "location_id", "status"? }
+                                         (duplicate → 409, bad location_id → 400)
+PUT    /api/admin/devices/{device_id}    admin-only — update location/status
+                                         (bad status → 400, unknown device → 404)
+POST   /api/admin/devices/{device_id}/key    admin-only — issue/rotate a
+                                         per-device API key; plaintext
+                                         returned ONCE, only the SHA-256 hash
+                                         is stored
+DELETE /api/admin/devices/{device_id}/key    admin-only — revoke a device's
+                                         key (no key to revoke → 404)
+```
+
+**Staff check-in (FR30)** — voluntary zone-level check-in; all require a staff/admin JWT
+```
+GET    /api/staff/checkin           { "location_id": "loc-001", "zone_name": "…", "checked_in_at": "2026-07-11T…Z" } — own check-in info + full zone list
+PUT    /api/staff/checkin           { "location_id": "loc-001" } — check in to a zone (overwrites; expires after CHECKIN_TTL_SECONDS)
+DELETE /api/staff/checkin           check out (owner-only)
+```
+
+**Push notifications (FR9/FR12)** — all require a staff/admin JWT
+```
+GET    /api/push/public-key    { "public_key": "<VAPID key or ''>", "enabled": bool }
+POST   /api/push/subscribe     { "endpoint", "keys": {"p256dh", "auth"} } — upserts by endpoint
+DELETE /api/push/subscribe     { "endpoint" } — owner-only (or admin); non-owner → 404
 ```
 
 **Real-time**
@@ -452,7 +617,13 @@ WS   /ws/dashboard?token=<jwt>   live alert push (JSON {type:"ALERT", …});
                                  location assignments (§4.3);
                                  invalid token → close code 4401
 MQTT sams/alerts                 same alert payload (when MQTT_ENABLED=true)
+Web Push (FR9/FR12)              same FR16 filtering, minimal payload
+                                 (no transcript/threat score) — see §5.6
 ```
+
+`GET /api/alerts/{alert_id}` additionally includes a read-only
+`nearest_staff` list (FR30, §5.6) — the alert feed itself stays lean and does
+not carry it.
 
 ---
 
@@ -465,7 +636,7 @@ MQTT sams/alerts                 same alert payload (when MQTT_ENABLED=true)
 | Phone can't load `…:8000/m/` | Same Wi-Fi as the PC? Server started with `--host 0.0.0.0`? Firewall rule added (§5.3)? |
 | Dashboard dot stuck on "Connecting…" | Backend not running, or opened from a different host than `localhost`. |
 | Transcription shows "[transcription unavailable]" | `GROQ_API_KEY` missing or invalid in `.env` (scream alerts still fire). |
-| ESP32 gets 401 on `/api/events/audio` | `DEVICE_API_KEY` is set but the device isn't sending the matching `X-API-Key` header. |
+| ESP32 gets 401 on `/api/events/audio` or `/api/devices/heartbeat` | Either `DEVICE_API_KEY` is set globally, or this specific device has a per-device key (FR25, §4.5) — check it's sending the matching `X-API-Key` header. |
 | "Install app" option missing on phone | Plain HTTP LAN IP isn't a secure context — see §5.5. |
 | MQTT errors at startup | Set `MQTT_ENABLED=false`, or start Mosquitto (§6). |
 
@@ -499,5 +670,8 @@ MQTT sams/alerts                 same alert payload (when MQTT_ENABLED=true)
   the backend `.env` with the new key.
 - **Edge integration:** real ESP32-C3 + INMP441 device (teammate's module)
   uploads to Supabase then notifies `/api/events/audio` — the backend
-  auto-registers devices. When `DEVICE_API_KEY` is enabled, the firmware must
-  send the `X-API-Key` header.
+  auto-registers devices not yet in the registry. When `DEVICE_API_KEY` is
+  enabled (globally or per-device, §4.5), the firmware must send the
+  `X-API-Key` header. The firmware itself does not yet call
+  `POST /api/devices/heartbeat`; liveness is still derived from ingestion
+  events until that's added to the sketch.

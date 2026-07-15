@@ -120,6 +120,46 @@ button { font-family: inherit; cursor: pointer; }
 }
 .icon-btn:active { background: var(--bg-hover); }
 
+/* Web Push bell (FR9/FR12) — off (default icon-btn look) / on (subscribed,
+   amber like other active accents) / unavailable (insecure origin or the
+   backend has push disabled — dimmed and non-interactive-looking). */
+.bell-btn.on { color: var(--amber); }
+.bell-btn.unavailable { color: var(--text-muted); opacity: 0.5; }
+
+/* ── Staff zone check-in (FR30) ──────────────────────────────────────────── */
+/* Compact bar above the stats strip. Rebuilt wholesale by renderCheckinCard()
+   from GET/PUT/DELETE /api/staff/checkin responses — three states: no
+   check-in (select + button), checked in (pill + check-out), expired
+   (dimmed pill + select + button to re-check-in). Collapses to nothing while
+   empty so it never reserves space before the first load resolves. */
+.checkin-card {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 14px; border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+}
+.checkin-card:empty { display: none; padding: 0; border: none; }
+.checkin-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 1; }
+.checkin-label { font-size: 12px; color: var(--text-secondary); font-family: var(--font-mono); flex-shrink: 0; }
+.checkin-card select {
+  flex: 1; min-width: 120px; padding: 8px 10px; font-size: 13px;
+  background: var(--bg-elevated); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  outline: none; transition: border-color 0.15s;
+}
+.checkin-card select:focus { border-color: var(--amber); }
+.btn-checkin, .btn-checkout {
+  flex-shrink: 0; padding: 8px 14px; font-size: 13px; font-weight: 600;
+  border-radius: var(--radius); border: 1px solid transparent; transition: opacity 0.15s;
+}
+.btn-checkin { background: var(--amber); color: #000; }
+.btn-checkin:active { opacity: 0.85; }
+.btn-checkout { background: none; border-color: var(--border); color: var(--text-secondary); }
+.btn-checkout:active { background: var(--bg-hover); }
+.btn-checkin:disabled, .btn-checkout:disabled { opacity: 0.6; cursor: default; }
+.checkin-card.checked-in .pill { flex: 1; }
+.checkin-card.expired { opacity: 0.85; }
+.checkin-card.expired .pill { color: var(--text-muted); border-color: var(--border-subtle); flex: 1; }
+
 /* ── Stats strip ─────────────────────────────────────────────────────────── */
 .stats {
   display: grid; grid-template-columns: repeat(3, 1fr);

@@ -631,6 +631,121 @@
     transition: color 0.15s;
   }
   .signout-btn:hover { color: var(--red); }
+
+  /* ── Devices tab (FR28/FR29/FR30) ────────────────────────────────────────── */
+  .device-map-wrap {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 10px;
+    margin-bottom: 10px;
+  }
+  .device-svg { width: 100%; height: auto; display: block; }
+  .device-room { fill: var(--bg-surface); stroke: var(--border); stroke-width: 0.5; }
+  .device-room-label { fill: var(--text-muted); font-size: 3px; font-family: var(--font-mono); }
+  .device-marker circle:not(.device-pulse-ring) { stroke: var(--bg-base); stroke-width: 0.6; }
+  .device-marker { cursor: pointer; }
+  .device-marker.online circle:not(.device-pulse-ring) { fill: var(--teal); }
+  .device-marker.offline circle:not(.device-pulse-ring) { fill: var(--text-muted); }
+  .device-marker.error circle:not(.device-pulse-ring) { fill: var(--red); }
+  .device-marker text { fill: var(--text-primary); font-size: 2.6px; font-family: var(--font-mono); text-anchor: middle; pointer-events: none; }
+  .device-pulse-ring { fill: none; stroke: var(--red); stroke-width: 1; transform-box: fill-box; transform-origin: center; animation: device-pulse 1.4s ease-out infinite; }
+  @keyframes device-pulse {
+    0%   { r: 2.6; opacity: 0.9; }
+    100% { r: 9;   opacity: 0;   }
+  }
+  .device-unpositioned { font-size: 11px; color: var(--text-secondary); margin-bottom: 10px; }
+  .device-table-wrap { overflow-x: auto; }
+  .device-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .device-table th {
+    text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--text-muted); padding: 6px 4px; border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .device-table td { padding: 6px 4px; border-bottom: 1px solid var(--border-subtle); vertical-align: middle; }
+  .device-table tr.selected { background: var(--bg-hover); }
+  .device-status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+  .device-status-dot.online  { background: var(--teal); }
+  .device-status-dot.offline { background: var(--text-muted); }
+  .device-status-dot.error   { background: var(--red); }
+  .device-badge {
+    font-size: 10px; font-family: var(--font-mono); padding: 1px 6px; border-radius: 3px;
+    background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-secondary);
+    display: inline-block;
+  }
+  .device-detail-box {
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); padding: 12px; margin-top: 10px;
+  }
+  .device-admin-form { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .device-admin-form input, .device-admin-form select {
+    background: var(--bg-base); border: 1px solid var(--border); border-radius: var(--radius);
+    color: var(--text-primary); font-family: var(--font-ui); font-size: 12px; padding: 5px 8px; outline: none;
+  }
+  .device-btn {
+    padding: 5px 10px; background: var(--amber); color: #000; border: none;
+    border-radius: var(--radius); font-size: 12px; font-weight: 600; cursor: pointer;
+    font-family: var(--font-ui); transition: opacity 0.15s; white-space: nowrap;
+  }
+  .device-btn:hover    { opacity: 0.85; }
+  .device-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .device-btn.secondary { background: none; border: 1px solid var(--border); color: var(--text-secondary); }
+  .device-btn.danger     { background: none; border: 1px solid var(--red); color: var(--red); }
+  .device-modal-overlay {
+    position: fixed; inset: 0; z-index: 600; background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .device-modal {
+    background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); padding: 20px; max-width: 420px; width: calc(100% - 32px);
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .device-modal .login-field label {
+    display: block; font-size: 11px; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.5px; font-family: var(--font-mono); margin-bottom: 4px;
+  }
+  .device-modal select {
+    width: 100%; background: var(--bg-base); border: 1px solid var(--border); border-radius: var(--radius);
+    color: var(--text-primary); font-family: var(--font-ui); font-size: 13px; padding: 8px 10px; outline: none;
+  }
+  .device-key-box {
+    font-family: var(--font-mono); font-size: 13px; background: var(--bg-base);
+    border: 1px solid var(--border); border-radius: var(--radius); padding: 10px;
+    word-break: break-all; user-select: all;
+  }
+  .device-modal-warning { color: var(--amber); font-size: 12px; }
+
+  /* ── Staff admin panel ──────────────────────────────────────────────────── */
+  .staff-card {
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); padding: 12px; margin-bottom: 12px;
+  }
+  .staff-form-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+  .staff-form-grid input, .staff-form-grid select {
+    background: var(--bg-base); border: 1px solid var(--border); border-radius: var(--radius);
+    color: var(--text-primary); font-family: var(--font-ui); font-size: 12px; padding: 5px 8px; outline: none;
+  }
+  .staff-pw-wrap { display: flex; align-items: center; gap: 4px; }
+  .staff-checkbox-group {
+    display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 6px 0 10px;
+    font-size: 12px; color: var(--text-secondary);
+  }
+  .staff-checkbox-group label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+  .staff-role-badge {
+    font-size: 10px; font-family: var(--font-mono); padding: 1px 6px; border-radius: 3px;
+    border: 1px solid var(--border); display: inline-block; text-transform: uppercase;
+  }
+  .staff-role-badge.admin { color: var(--amber); border-color: var(--amber); }
+  .staff-role-badge.staff { color: var(--text-secondary); }
+  .staff-field-error { color: var(--red); font-size: 11px; }
+
+  /* ── Nearest staff (FR30) ────────────────────────────────────────────────── */
+  .nearest-staff-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+  .nearest-staff-badge {
+    font-size: 11px; font-family: var(--font-mono); padding: 2px 8px; border-radius: 100px;
+    background: var(--blue-dim); border: 1px solid var(--blue); color: var(--blue);
+  }
+  .nearest-staff-badge.assigned { background: var(--teal-dim); border-color: var(--teal); color: var(--teal); }
 </style>
 </head>
 <body>
@@ -687,6 +802,12 @@
         <div class="sidebar-tab" data-tab="analytics" onclick="switchTab('analytics', this)">
           Analytics
         </div>
+        <div class="sidebar-tab" data-tab="devices" onclick="switchTab('devices', this)">
+          Devices
+        </div>
+        <div class="sidebar-tab" data-tab="staff" onclick="switchTab('staff', this)">
+          Staff
+        </div>
       </div>
 
       <!-- Alerts tab -->
@@ -710,6 +831,50 @@
         <div class="analytics-panel" id="analytics-content">
           <div class="empty-state">Loading…</div>
         </div>
+      </div>
+
+      <!-- Devices tab (FR28/FR29) -->
+      <div id="tab-devices" style="display:none; overflow-y:auto; flex:1; padding:10px;">
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+          <div style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono); text-transform:uppercase; letter-spacing:.5px; flex:1;">
+            Device Map
+          </div>
+          <span style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono);" id="device-last-refresh"></span>
+          <button class="device-btn secondary" onclick="loadDevices()">Refresh</button>
+        </div>
+
+        <div class="device-map-wrap" id="device-map-wrap">
+          <svg id="device-map-svg" class="device-svg" viewBox="0 0 100 62" preserveAspectRatio="xMidYMid meet"></svg>
+        </div>
+        <div id="device-unpositioned" class="device-unpositioned"></div>
+        <div class="device-unpositioned" style="margin-top:-4px">Staff check-ins appear on alert details — nearest staff prefers a teacher's live check-in zone over static assignments.</div>
+
+        <div id="device-admin-register" style="display:none"></div>
+
+        <div class="device-table-wrap">
+          <table class="device-table">
+            <thead>
+              <tr><th>Device</th><th>Location</th><th>Status</th><th>Last seen</th><th>Key</th><th></th></tr>
+            </thead>
+            <tbody id="device-table-body">
+              <tr><td colspan="6" class="empty-state">Loading devices…</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="device-detail-box" id="device-detail-box" style="display:none"></div>
+      </div>
+
+      <!-- Staff tab (admin only) -->
+      <div id="tab-staff" style="display:none; overflow-y:auto; flex:1; padding:10px;">
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+          <div style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono); text-transform:uppercase; letter-spacing:.5px; flex:1;">
+            Staff Accounts
+          </div>
+          <span style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono);" id="staff-last-refresh"></span>
+          <button class="device-btn secondary" onclick="loadStaff()">Refresh</button>
+        </div>
+        <div id="staff-panel-content"><div class="empty-state">Loading…</div></div>
       </div>
     </aside>
 
@@ -800,6 +965,12 @@
 <!-- Toast container -->
 <div id="toast-container"></div>
 
+<!-- Device admin modal container (edit / issue-key) -->
+<div id="device-modal-container"></div>
+
+<!-- Staff admin modal container (edit zones) -->
+<div id="staff-modal-container"></div>
+
 <!-- ── Login overlay ─────────────────────────────────────────────────────── -->
 <div class="login-overlay" id="login-overlay">
   <form class="login-card" id="login-form" autocomplete="off">
@@ -849,6 +1020,11 @@ let selectedEventId = null;
 let screamFilter    = 'scream';   // 'scream' | 'all'
 let lastEventCount  = 0;
 let currentPage     = 'alerts';
+
+// Devices (FR28/FR29/FR30)
+let devices                  = [];
+let deviceOfflineAfterSeconds = 300;
+let selectedDeviceId         = null;
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 const TOKEN_KEY = 'sams_token';
@@ -923,6 +1099,7 @@ function startApp() {
     setInterval(() => { if (getToken()) loadAlerts(); }, 30000);
     setInterval(() => { if (getToken()) loadStats();  }, 15000);
     setInterval(() => { if (getToken()) loadScreamEvents(true); }, 5000);
+    setInterval(() => { if (getToken() && isDevicesTabVisible()) loadDevices(true); }, 30000);
   }
 }
 
@@ -1015,6 +1192,7 @@ function handleIncomingAlert(msg) {
       event_id:       msg.event_id,
       severity:       msg.severity,
       status:         'active',
+      location_id:    msg.location_id,
       location_name:  msg.location_name,
       transcript:     msg.transcript,
       threat_score:   msg.threat_score,
@@ -1024,11 +1202,14 @@ function handleIncomingAlert(msg) {
       // Speech-emotion fields (also present on REST alerts)
       emotion:            msg.emotion,
       emotion_confidence: msg.emotion_confidence,
+      // FR30 — nearest on-duty staff (also present on REST alert detail)
+      nearest_staff:      msg.nearest_staff,
     });
     renderAlertList();
     loadStats();
     showToast(msg);
     playAlertSound(msg.severity);
+    refreshDeviceOverlay();
   }
   // Refresh scream events in the background
   if (getToken()) loadScreamEvents(true);
@@ -1078,6 +1259,7 @@ async function loadAlerts() {
     const data = await res.json();
     alerts = data.alerts || [];
     renderAlertList();
+    refreshDeviceOverlay();
   } catch(e) {
     document.getElementById('alert-list').innerHTML =
       '<div class="empty-state">Could not reach API — is the backend running?</div>';
@@ -1180,6 +1362,28 @@ function renderDetail(alert) {
     emotionChip = `<span class="meta-pill" style="${chipStyle}">Emotion: ${escHtml(alert.emotion)}${escHtml(confTxt)}</span>`;
   }
 
+  // FR30 — nearest on-duty staff, when the alert detail/WS payload includes it
+  let nearestStaffHTML = '';
+  if (Array.isArray(alert.nearest_staff) && alert.nearest_staff.length) {
+    const badges = alert.nearest_staff.map(s => {
+      const name      = escHtml(s && s.name ? s.name : 'Unknown');
+      const distNum   = Number(s && s.distance);
+      const checkedIn = !!(s && s.checked_in);
+      const checkedInTxt = checkedIn ? ' · checked in' : '';
+      if (s && s.assigned_here) {
+        const label = checkedIn ? ' (checked in here)' : ' (assigned here)';
+        return `<span class="nearest-staff-badge assigned">${name}${escHtml(label)}</span>`;
+      }
+      const distTxt = Number.isFinite(distNum) ? ` — ${escHtml(distNum.toFixed(1))} away` : '';
+      return `<span class="nearest-staff-badge">${name}${distTxt}${escHtml(checkedInTxt)}</span>`;
+    }).join('');
+    nearestStaffHTML = `
+    <div class="score-section">
+      <div class="score-label">Nearest Staff</div>
+      <div class="nearest-staff-badges">${badges}</div>
+    </div>`;
+  }
+
   document.getElementById('detail-panel').innerHTML = `
     <div class="detail-header">
       <div>
@@ -1227,6 +1431,7 @@ function renderDetail(alert) {
         <div class="score-value">${scoreW}%</div>
       </div>
     </div>
+    ${nearestStaffHTML}
 
     <div class="transcript-box">
       <div class="box-label">Transcript</div>
@@ -1955,13 +2160,701 @@ function renderReportSummary(s) {
   `;
 }
 
+// ── Devices (FR28 map, FR29 registry UI) ────────────────────────────────────────
+
+// Seeded location fallbacks so the "location" dropdown has options even before
+// every location has a device; real names from the API always take priority.
+const KNOWN_LOCATIONS = [
+  { location_id: 'loc-001', location_name: 'Toilet (Upper Left)' },
+  { location_id: 'loc-002', location_name: 'Toilet (Upper Right)' },
+  { location_id: 'loc-003', location_name: 'Stairwell (Lower Left)' },
+  { location_id: 'loc-004', location_name: 'Stairwell (Lower Right)' },
+  { location_id: 'loc-005', location_name: 'Corridor (Center)' },
+  { location_id: 'loc-006', location_name: 'Changing Room' },
+];
+
+function isDevicesTabVisible() {
+  const el = document.getElementById('tab-devices');
+  return !!el && el.style.display !== 'none';
+}
+
+function deviceLocationOptions() {
+  const map = new Map();
+  KNOWN_LOCATIONS.forEach(l => map.set(l.location_id, l.location_name));
+  devices.forEach(d => {
+    if (d.location_id) map.set(d.location_id, d.location_name || map.get(d.location_id) || d.location_id);
+  });
+  return Array.from(map.entries()).map(([location_id, location_name]) => ({ location_id, location_name }));
+}
+
+// Locations that currently have an unresolved ("active") alert — drives the
+// pulsing ring overlay on the map (FR28b).
+function activeAlertLocationIds() {
+  return new Set(
+    alerts.filter(a => a && a.status === 'active' && a.location_id).map(a => a.location_id)
+  );
+}
+
+// Re-draw the map/table overlay after alerts change, without re-fetching devices.
+function refreshDeviceOverlay() {
+  if (!devices.length) return;
+  renderDeviceMap();
+  renderDeviceTable();
+}
+
+function relativeTime(iso) {
+  if (!iso) return 'never';
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return 'never';
+  const diffSec = Math.max(0, Math.round((Date.now() - then) / 1000));
+  if (diffSec < 5)   return 'just now';
+  if (diffSec < 60)  return `${diffSec}s ago`;
+  const diffMin = Math.round(diffSec / 60);
+  if (diffMin < 60)  return `${diffMin} min ago`;
+  const diffHr = Math.round(diffMin / 60);
+  if (diffHr < 24)   return `${diffHr} hr ago`;
+  const diffDay = Math.round(diffHr / 24);
+  return `${diffDay} day${diffDay === 1 ? '' : 's'} ago`;
+}
+
+async function loadDevices(silent) {
+  try {
+    const res = await authFetch(`${API}/api/devices/`);
+    if (!res.ok) {
+      if (res.status === 403) {
+        showDeviceLoadError('You do not have access to device data.');
+      } else if (!silent) {
+        showDeviceLoadError('Could not load devices (server error).');
+      }
+      return;
+    }
+    const data = await res.json();
+    devices = data.devices || [];
+    deviceOfflineAfterSeconds = data.offline_after_seconds || 300;
+    renderDeviceMap();
+    renderDeviceTable();
+    renderDeviceAdminControls();
+    if (selectedDeviceId) {
+      const d = devices.find(x => x.device_id === selectedDeviceId);
+      if (d) renderDeviceDetail(d);
+    }
+    const stamp = document.getElementById('device-last-refresh');
+    if (stamp) stamp.textContent = 'Updated ' + new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  } catch(e) {
+    if (e && e.message === 'Unauthorized') return;
+    if (!silent) showDeviceLoadError('Could not reach API — is the backend running?');
+  }
+}
+
+function showDeviceLoadError(msg) {
+  const wrap = document.getElementById('device-map-wrap');
+  if (wrap) wrap.innerHTML = `<div class="empty-state">${escHtml(msg)}</div>`;
+}
+
+// ── Map rendering (FR28) ────────────────────────────────────────────────────
+function renderDeviceMap() {
+  const svg = document.getElementById('device-map-svg');
+  if (!svg) return;
+  const activeLocs = activeAlertLocationIds();
+
+  // Generic schematic building outline — actual device positions come from the API.
+  const rooms = `
+    <rect class="device-room" x="2"  y="2"  width="24" height="16" rx="2"/>
+    <text class="device-room-label" x="4"  y="7">Toilet</text>
+    <rect class="device-room" x="74" y="2"  width="24" height="16" rx="2"/>
+    <text class="device-room-label" x="76" y="7">Toilet</text>
+    <rect class="device-room" x="2"  y="44" width="18" height="16" rx="2"/>
+    <text class="device-room-label" x="4"  y="49">Stairwell</text>
+    <rect class="device-room" x="80" y="44" width="18" height="16" rx="2"/>
+    <text class="device-room-label" x="82" y="49">Stairwell</text>
+    <rect class="device-room" x="28" y="24" width="44" height="14" rx="2"/>
+    <text class="device-room-label" x="30" y="28">Corridor</text>
+    <rect class="device-room" x="36" y="46" width="28" height="14" rx="2"/>
+    <text class="device-room-label" x="38" y="50">Changing Room</text>
+  `;
+
+  const hasPos = d => d && d.map_x !== null && d.map_x !== undefined && d.map_y !== null && d.map_y !== undefined;
+  const positioned = devices.filter(hasPos);
+
+  const markers = positioned.map(d => {
+    const status = (d.status === 'online' || d.status === 'offline' || d.status === 'error') ? d.status : 'offline';
+    const x = Number(d.map_x), y = Number(d.map_y);
+    const pulse = activeLocs.has(d.location_id)
+      ? `<circle class="device-pulse-ring" cx="${x}" cy="${y}" r="2.6"/>`
+      : '';
+    return `
+      <g class="device-marker ${status}" data-device-id="${escHtml(d.device_id)}">
+        ${pulse}
+        <circle cx="${x}" cy="${y}" r="2.2"></circle>
+        <text x="${x}" y="${y - 3.5}">${escHtml(d.device_id)}</text>
+      </g>
+    `;
+  }).join('');
+
+  svg.innerHTML = rooms + markers;
+
+  const unpositioned = devices.filter(d => !hasPos(d));
+  const unposEl = document.getElementById('device-unpositioned');
+  if (unposEl) {
+    unposEl.innerHTML = unpositioned.length
+      ? 'Unpositioned devices: ' + unpositioned.map(d =>
+          `<span class="device-badge" data-device-id="${escHtml(d.device_id)}" style="cursor:pointer">${escHtml(d.device_id)} — ${escHtml(d.location_name || d.location_id || 'no location')}</span>`
+        ).join(' ')
+      : '';
+  }
+}
+
+// ── Table rendering (FR29) ──────────────────────────────────────────────────
+function renderDeviceTable() {
+  const tbody = document.getElementById('device-table-body');
+  if (!tbody) return;
+  if (!devices.length) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-state">No devices registered</td></tr>`;
+    return;
+  }
+  const admin = isAdmin();
+  tbody.innerHTML = devices.map(d => {
+    const status = (d.status === 'online' || d.status === 'offline' || d.status === 'error') ? d.status : 'offline';
+    return `
+    <tr data-device-id="${escHtml(d.device_id)}" class="${selectedDeviceId === d.device_id ? 'selected' : ''}" style="cursor:pointer">
+      <td>${escHtml(d.device_id)}</td>
+      <td>${escHtml(d.location_name || d.location_id || '—')}</td>
+      <td><span class="device-status-dot ${status}"></span>${escHtml(status)}${d.status_source === 'stored' ? ' <span class="device-badge">stored</span>' : ''}</td>
+      <td>${escHtml(relativeTime(d.last_seen))}</td>
+      <td>${d.has_credential ? '✓' : '—'}</td>
+      <td>
+        ${admin ? `
+          <button class="device-btn secondary device-edit-btn" data-device-id="${escHtml(d.device_id)}">Edit</button>
+          ${d.has_credential
+            ? `<button class="device-btn danger device-revoke-btn" data-device-id="${escHtml(d.device_id)}">Revoke key</button>`
+            : `<button class="device-btn secondary device-key-btn" data-device-id="${escHtml(d.device_id)}">Issue key</button>`}
+        ` : ''}
+      </td>
+    </tr>
+  `;
+  }).join('');
+}
+
+// ── Detail panel ─────────────────────────────────────────────────────────────
+function selectDevice(id) {
+  selectedDeviceId = id;
+  renderDeviceTable();
+  renderDeviceMap();
+  const d = devices.find(x => x.device_id === id);
+  if (d) renderDeviceDetail(d);
+}
+
+function renderDeviceDetail(d) {
+  const box = document.getElementById('device-detail-box');
+  if (!box) return;
+  box.style.display = 'block';
+  const status = (d.status === 'online' || d.status === 'offline' || d.status === 'error') ? d.status : 'offline';
+  box.innerHTML = `
+    <div class="detail-meta" style="margin-bottom:8px">
+      <span class="meta-pill">${escHtml(d.device_id)}</span>
+      <span class="meta-pill">${escHtml(d.location_name || d.location_id || 'No location')}</span>
+      <span class="device-badge"><span class="device-status-dot ${status}"></span>${escHtml(status)} (${escHtml(d.status_source || 'stored')})</span>
+      ${d.has_credential
+        ? '<span class="device-badge" style="color:var(--teal);border-color:var(--teal)">has key</span>'
+        : '<span class="device-badge">no key</span>'}
+    </div>
+    <div class="field-label">Last seen</div>
+    <div class="field-value">${escHtml(relativeTime(d.last_seen))}</div>
+  `;
+}
+
+// ── Admin: register device (FR29) ───────────────────────────────────────────
+function renderDeviceAdminControls() {
+  const el = document.getElementById('device-admin-register');
+  if (!el) return;
+  if (!isAdmin()) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  el.style.display = 'block';
+  const opts = deviceLocationOptions()
+    .map(l => `<option value="${escHtml(l.location_id)}">${escHtml(l.location_name)}</option>`)
+    .join('');
+  el.innerHTML = `
+    <div class="device-admin-form">
+      <input type="text" id="new-device-id" placeholder="Device ID (e.g. esp32-007)">
+      <select id="new-device-location">${opts}</select>
+      <button class="device-btn" id="register-device-btn">Register device</button>
+    </div>
+    <div class="report-note" id="device-admin-msg" style="display:none"></div>
+  `;
+  document.getElementById('register-device-btn').addEventListener('click', registerDevice);
+}
+
+function setDeviceAdminMsg(text, isError) {
+  const el = document.getElementById('device-admin-msg');
+  if (!el) return;
+  el.textContent = text || '';
+  el.className = 'report-note' + (isError ? ' error' : '');
+  el.style.display = text ? 'block' : 'none';
+}
+
+async function registerDevice() {
+  const idInput   = document.getElementById('new-device-id');
+  const locSelect = document.getElementById('new-device-location');
+  const btn       = document.getElementById('register-device-btn');
+  if (!idInput || !locSelect || !btn) return;
+  const deviceId   = idInput.value.trim();
+  const locationId = locSelect.value;
+  setDeviceAdminMsg('');
+  if (!deviceId) { setDeviceAdminMsg('Enter a device ID.', true); return; }
+
+  btn.disabled = true; btn.textContent = 'Registering…';
+  try {
+    const res = await authFetch(`${API}/api/admin/devices`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device_id: deviceId, location_id: locationId }),
+    });
+    if (res.status === 403) { setDeviceAdminMsg('Admin only — your account cannot register devices.', true); return; }
+    if (!res.ok) {
+      let detail = 'Could not register device.';
+      try { detail = (await res.json()).detail || detail; } catch(_) {}
+      setDeviceAdminMsg(detail, true);
+      return;
+    }
+    idInput.value = '';
+    await loadDevices();
+  } catch(e) {
+    if (e && e.message === 'Unauthorized') return;
+    setDeviceAdminMsg('Network error — could not reach API.', true);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Register device';
+  }
+}
+
+// ── Admin: edit device ───────────────────────────────────────────────────────
+function closeDeviceModal() {
+  const c = document.getElementById('device-modal-container');
+  if (c) c.innerHTML = '';
+}
+
+function openEditDeviceModal(deviceId) {
+  const d = devices.find(x => x.device_id === deviceId);
+  if (!d) return;
+  const opts = deviceLocationOptions().map(l =>
+    `<option value="${escHtml(l.location_id)}" ${l.location_id === d.location_id ? 'selected' : ''}>${escHtml(l.location_name)}</option>`
+  ).join('');
+  const statusOpts = ['online', 'offline', 'error'].map(s =>
+    `<option value="${s}" ${s === d.stored_status ? 'selected' : ''}>${s}</option>`
+  ).join('');
+  const c = document.getElementById('device-modal-container');
+  if (!c) return;
+  c.innerHTML = `
+    <div class="device-modal-overlay" id="device-edit-overlay">
+      <div class="device-modal">
+        <div class="detail-title" style="font-size:14px">Edit device — ${escHtml(d.device_id)}</div>
+        <div class="login-field"><label>Location</label><select id="edit-device-location">${opts}</select></div>
+        <div class="login-field"><label>Status</label><select id="edit-device-status">${statusOpts}</select></div>
+        <div class="report-note" id="edit-device-msg" style="display:none"></div>
+        <div style="display:flex; gap:8px; justify-content:flex-end;">
+          <button class="device-btn secondary" id="edit-device-cancel">Cancel</button>
+          <button class="device-btn" id="edit-device-save">Save</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.getElementById('edit-device-cancel').addEventListener('click', closeDeviceModal);
+  document.getElementById('device-edit-overlay').addEventListener('click', (e) => {
+    if (e.target.id === 'device-edit-overlay') closeDeviceModal();
+  });
+  document.getElementById('edit-device-save').addEventListener('click', () => saveDeviceEdit(deviceId));
+}
+
+async function saveDeviceEdit(deviceId) {
+  const locSel = document.getElementById('edit-device-location');
+  const statSel = document.getElementById('edit-device-status');
+  const msgEl  = document.getElementById('edit-device-msg');
+  const btn    = document.getElementById('edit-device-save');
+  if (!locSel || !statSel || !btn) return;
+  const setMsg = (t, err) => {
+    if (!msgEl) return;
+    msgEl.textContent = t || '';
+    msgEl.className = 'report-note' + (err ? ' error' : '');
+    msgEl.style.display = t ? 'block' : 'none';
+  };
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const res = await authFetch(`${API}/api/admin/devices/${encodeURIComponent(deviceId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ location_id: locSel.value, status: statSel.value }),
+    });
+    if (res.status === 403) { setMsg('Admin only — your account cannot edit devices.', true); return; }
+    if (!res.ok) {
+      let detail = 'Could not save changes.';
+      try { detail = (await res.json()).detail || detail; } catch(_) {}
+      setMsg(detail, true);
+      return;
+    }
+    closeDeviceModal();
+    await loadDevices();
+  } catch(e) {
+    if (e && e.message === 'Unauthorized') return;
+    setMsg('Network error — could not reach API.', true);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save';
+  }
+}
+
+// ── Admin: issue / revoke key ────────────────────────────────────────────────
+function toastError(text) { showToast({ severity: 'error', location_name: 'Devices', transcript: text }); }
+function toastInfo(text)  { showToast({ severity: 'low',   location_name: 'Devices', transcript: text }); }
+
+async function issueDeviceKey(deviceId) {
+  if (!confirm(`Issue a new API key for "${deviceId}"? Any existing key for this device stops working immediately.`)) return;
+  try {
+    const res = await authFetch(`${API}/api/admin/devices/${encodeURIComponent(deviceId)}/key`, { method: 'POST' });
+    if (res.status === 403) { toastError('Admin only — your account cannot issue device keys.'); return; }
+    if (!res.ok) { toastError('Could not issue key.'); return; }
+    const data = await res.json();
+    showKeyModal(deviceId, data.api_key || '');
+    await loadDevices();
+  } catch(e) {
+    if (e && e.message === 'Unauthorized') return;
+    toastError('Network error while issuing key.');
+  }
+}
+
+function showKeyModal(deviceId, apiKey) {
+  const c = document.getElementById('device-modal-container');
+  if (!c) return;
+  c.innerHTML = `
+    <div class="device-modal-overlay" id="device-key-overlay">
+      <div class="device-modal">
+        <div class="detail-title" style="font-size:14px">New API key — ${escHtml(deviceId)}</div>
+        <div class="device-modal-warning">This key is shown only once. Copy it now and store it securely on the device — it cannot be retrieved again.</div>
+        <div class="device-key-box" id="device-key-text">${escHtml(apiKey)}</div>
+        <div style="display:flex; gap:8px; justify-content:flex-end;">
+          <button class="device-btn secondary" id="device-key-copy">Copy</button>
+          <button class="device-btn" id="device-key-close">Done</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.getElementById('device-key-close').addEventListener('click', closeDeviceModal);
+  document.getElementById('device-key-copy').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(apiKey);
+      toastInfo('Key copied to clipboard.');
+    } catch(_) {
+      toastError('Could not copy automatically — select and copy the key manually.');
+    }
+  });
+}
+
+async function revokeDeviceKey(deviceId) {
+  if (!confirm(`Revoke the API key for "${deviceId}"? The device will not be able to authenticate until a new key is issued.`)) return;
+  try {
+    const res = await authFetch(`${API}/api/admin/devices/${encodeURIComponent(deviceId)}/key`, { method: 'DELETE' });
+    if (res.status === 403) { toastError('Admin only — your account cannot revoke device keys.'); return; }
+    if (!res.ok && res.status !== 204) { toastError('Could not revoke key.'); return; }
+    await loadDevices();
+  } catch(e) {
+    if (e && e.message === 'Unauthorized') return;
+    toastError('Network error while revoking key.');
+  }
+}
+
+// ── Delegated click handlers (no inline handlers with server-derived strings) ──
+document.getElementById('device-map-svg').addEventListener('click', (e) => {
+  const marker = e.target.closest('.device-marker[data-device-id]');
+  if (marker) selectDevice(marker.dataset.deviceId);
+});
+
+document.getElementById('device-unpositioned').addEventListener('click', (e) => {
+  const badge = e.target.closest('.device-badge[data-device-id]');
+  if (badge) selectDevice(badge.dataset.deviceId);
+});
+
+document.getElementById('device-table-body').addEventListener('click', (e) => {
+  const editBtn   = e.target.closest('.device-edit-btn');
+  const keyBtn    = e.target.closest('.device-key-btn');
+  const revokeBtn = e.target.closest('.device-revoke-btn');
+  if (editBtn)   { openEditDeviceModal(editBtn.dataset.deviceId);   return; }
+  if (keyBtn)    { issueDeviceKey(keyBtn.dataset.deviceId);         return; }
+  if (revokeBtn) { revokeDeviceKey(revokeBtn.dataset.deviceId);     return; }
+  const row = e.target.closest('tr[data-device-id]');
+  if (row) selectDevice(row.dataset.deviceId);
+});
+
+// ── Staff admin panel ────────────────────────────────────────────────────────
+let staffList = [];
+
+function staffLocationOptions() {
+  // Same fallback + live-device-derived location set used by the Devices tab.
+  return deviceLocationOptions();
+}
+
+function validStaffPassword(pw) {
+  return typeof pw === 'string' && pw.length >= 8 && /[A-Za-z]/.test(pw) && /\d/.test(pw);
+}
+
+function validStaffEmail(email) {
+  return typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function renderStaffAdminRequired() {
+  const el = document.getElementById('staff-panel-content');
+  if (el) el.innerHTML = '<div class="empty-state">Admin access required</div>';
+  const stamp = document.getElementById('staff-last-refresh');
+  if (stamp) stamp.textContent = '';
+}
+
+async function loadStaff() {
+  if (!isAdmin()) { renderStaffAdminRequired(); return; }
+  const el = document.getElementById('staff-panel-content');
+  try {
+    const res = await authFetch(`${API}/api/admin/staff`);
+    if (res.status === 403) { renderStaffAdminRequired(); return; }
+    if (!res.ok) {
+      if (el) el.innerHTML = '<div class="empty-state">Could not load staff accounts (server error).</div>';
+      return;
+    }
+    const data = await res.json();
+    staffList = data.staff || [];
+    renderStaffPanel();
+    const stamp = document.getElementById('staff-last-refresh');
+    if (stamp) stamp.textContent = 'Updated ' + new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  } catch(e) {
+    if (e && e.message === 'Unauthorized') return;
+    if (el) el.innerHTML = '<div class="empty-state">Could not reach API — is the backend running?</div>';
+  }
+}
+
+function renderStaffPanel() {
+  const el = document.getElementById('staff-panel-content');
+  if (!el) return;
+  if (!isAdmin()) { renderStaffAdminRequired(); return; }
+
+  const locOpts = staffLocationOptions();
+  const locCheckboxes = locOpts.map(l =>
+    `<label><input type="checkbox" class="staff-new-loc" value="${escHtml(l.location_id)}"> ${escHtml(l.location_name)}</label>`
+  ).join('');
+
+  el.innerHTML = `
+    <div class="staff-card">
+      <div class="field-label" style="margin-bottom:8px">Add account</div>
+      <div class="staff-form-grid">
+        <input type="text" id="staff-new-name" placeholder="Full name">
+        <input type="email" id="staff-new-email" placeholder="Email">
+      </div>
+      <div class="staff-form-grid">
+        <div class="staff-pw-wrap">
+          <input type="password" id="staff-new-password" placeholder="Password (min 8, letter + digit)" style="flex:1">
+          <button type="button" class="device-btn secondary" id="staff-new-password-toggle">Show</button>
+        </div>
+        <select id="staff-new-role">
+          <option value="staff" selected>Staff</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+      <div class="field-label" style="margin-top:4px">Assigned zones — leave empty for all / fail-open</div>
+      <div class="staff-checkbox-group" id="staff-new-locations">${locCheckboxes || '<span class="empty-state" style="padding:0">No locations available</span>'}</div>
+      <div class="staff-field-error" id="staff-new-error" style="display:none"></div>
+      <div class="report-note" id="staff-new-success" style="display:none"></div>
+      <button class="device-btn" id="staff-create-btn">Create account</button>
+    </div>
+
+    <div class="device-table-wrap">
+      <table class="device-table">
+        <thead>
+          <tr><th>Name</th><th>Email</th><th>Role</th><th>Assigned zones</th><th></th></tr>
+        </thead>
+        <tbody id="staff-table-body">
+          <tr><td colspan="5" class="empty-state">Loading staff…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  document.getElementById('staff-create-btn').addEventListener('click', createStaffAccount);
+  document.getElementById('staff-new-password-toggle').addEventListener('click', () => {
+    const pw = document.getElementById('staff-new-password');
+    const btn = document.getElementById('staff-new-password-toggle');
+    if (!pw || !btn) return;
+    const showing = pw.type === 'text';
+    pw.type = showing ? 'password' : 'text';
+    btn.textContent = showing ? 'Show' : 'Hide';
+  });
+
+  renderStaffTable();
+}
+
+function setStaffCreateMsg(text, isError) {
+  const errEl = document.getElementById('staff-new-error');
+  const okEl  = document.getElementById('staff-new-success');
+  if (errEl) { errEl.textContent = isError ? (text || '') : ''; errEl.style.display = isError && text ? 'block' : 'none'; }
+  if (okEl)  { okEl.textContent  = !isError ? (text || '') : ''; okEl.style.display  = !isError && text ? 'block' : 'none'; }
+}
+
+function renderStaffTable() {
+  const tbody = document.getElementById('staff-table-body');
+  if (!tbody) return;
+  if (!staffList.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No staff accounts</td></tr>';
+    return;
+  }
+  const locNameById = new Map(staffLocationOptions().map(l => [l.location_id, l.location_name]));
+  tbody.innerHTML = staffList.map(s => {
+    const zones = Array.isArray(s.location_ids) && s.location_ids.length
+      ? s.location_ids.map(id => escHtml(locNameById.get(id) || id)).join(', ')
+      : 'all (fail-open)';
+    const role = (s.role === 'admin') ? 'admin' : 'staff';
+    return `
+    <tr data-user-id="${escHtml(s.user_id)}">
+      <td>${escHtml(s.name)}</td>
+      <td>${escHtml(s.email)}</td>
+      <td><span class="staff-role-badge ${role}">${escHtml(role)}</span></td>
+      <td>${zones}</td>
+      <td><button class="device-btn secondary staff-edit-zones-btn" data-user-id="${escHtml(s.user_id)}">Edit zones</button></td>
+    </tr>
+  `;
+  }).join('');
+}
+
+async function createStaffAccount() {
+  const nameEl  = document.getElementById('staff-new-name');
+  const emailEl = document.getElementById('staff-new-email');
+  const pwEl    = document.getElementById('staff-new-password');
+  const roleEl  = document.getElementById('staff-new-role');
+  const btn     = document.getElementById('staff-create-btn');
+  if (!nameEl || !emailEl || !pwEl || !roleEl || !btn) return;
+
+  const name  = nameEl.value.trim();
+  const email = emailEl.value.trim();
+  const password = pwEl.value;
+  const role  = roleEl.value === 'admin' ? 'admin' : 'staff';
+  const locationIds = Array.from(document.querySelectorAll('.staff-new-loc:checked')).map(cb => cb.value);
+
+  setStaffCreateMsg('');
+  if (!name) { setStaffCreateMsg('Enter a name.', true); return; }
+  if (!validStaffEmail(email)) { setStaffCreateMsg('Enter a valid email address.', true); return; }
+  if (!validStaffPassword(password)) { setStaffCreateMsg('Password must be at least 8 characters and include a letter and a digit.', true); return; }
+
+  btn.disabled = true; btn.textContent = 'Creating…';
+  try {
+    const res = await authFetch(`${API}/api/admin/staff`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, password, role, location_ids: locationIds }),
+    });
+    if (res.status === 403) { setStaffCreateMsg('Admin only — your account cannot create staff accounts.', true); return; }
+    if (!res.ok) {
+      let detail = 'Could not create account.';
+      try {
+        const body = await res.json();
+        if (typeof body.detail === 'string') detail = body.detail;
+        else if (Array.isArray(body.detail) && body.detail.length) detail = body.detail.map(d => d.msg || JSON.stringify(d)).join('; ');
+      } catch(_) {}
+      setStaffCreateMsg(detail, true);
+      return;
+    }
+    const data = await res.json();
+    pwEl.value = ''; // never retain the password client-side
+    setStaffCreateMsg(`Account created for ${data.email || email}`, false);
+    nameEl.value = '';
+    emailEl.value = '';
+    document.querySelectorAll('.staff-new-loc:checked').forEach(cb => cb.checked = false);
+    await loadStaff();
+  } catch(e) {
+    if (e && e.message === 'Unauthorized') return;
+    setStaffCreateMsg('Network error — could not reach API.', true);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Create account';
+  }
+}
+
+// ── Admin: edit staff zones ──────────────────────────────────────────────────
+function closeStaffModal() {
+  const c = document.getElementById('staff-modal-container');
+  if (c) c.innerHTML = '';
+}
+
+function openEditStaffZonesModal(userId) {
+  const s = staffList.find(x => x.user_id === userId);
+  if (!s) return;
+  const assigned = new Set(Array.isArray(s.location_ids) ? s.location_ids : []);
+  const opts = staffLocationOptions().map(l =>
+    `<label><input type="checkbox" class="staff-edit-loc" value="${escHtml(l.location_id)}" ${assigned.has(l.location_id) ? 'checked' : ''}> ${escHtml(l.location_name)}</label>`
+  ).join('');
+  const c = document.getElementById('staff-modal-container');
+  if (!c) return;
+  c.innerHTML = `
+    <div class="device-modal-overlay" id="staff-edit-overlay">
+      <div class="device-modal">
+        <div class="detail-title" style="font-size:14px">Edit zones — ${escHtml(s.name)}</div>
+        <div class="field-label">Assigned zones — leave empty for all / fail-open</div>
+        <div class="staff-checkbox-group">${opts || '<span class="empty-state" style="padding:0">No locations available</span>'}</div>
+        <div class="report-note" id="staff-edit-msg" style="display:none"></div>
+        <div style="display:flex; gap:8px; justify-content:flex-end;">
+          <button class="device-btn secondary" id="staff-edit-cancel">Cancel</button>
+          <button class="device-btn" id="staff-edit-save">Save</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.getElementById('staff-edit-cancel').addEventListener('click', closeStaffModal);
+  document.getElementById('staff-edit-overlay').addEventListener('click', (e) => {
+    if (e.target.id === 'staff-edit-overlay') closeStaffModal();
+  });
+  document.getElementById('staff-edit-save').addEventListener('click', () => saveStaffZones(userId));
+}
+
+async function saveStaffZones(userId) {
+  const msgEl = document.getElementById('staff-edit-msg');
+  const btn   = document.getElementById('staff-edit-save');
+  if (!btn) return;
+  const setMsg = (t, err) => {
+    if (!msgEl) return;
+    msgEl.textContent = t || '';
+    msgEl.className = 'report-note' + (err ? ' error' : '');
+    msgEl.style.display = t ? 'block' : 'none';
+  };
+  const locationIds = Array.from(document.querySelectorAll('.staff-edit-loc:checked')).map(cb => cb.value);
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const res = await authFetch(`${API}/api/admin/staff/${encodeURIComponent(userId)}/locations`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ location_ids: locationIds }),
+    });
+    if (res.status === 403) { setMsg('Admin only — your account cannot edit staff zones.', true); return; }
+    if (!res.ok) {
+      let detail = 'Could not save changes.';
+      try { detail = (await res.json()).detail || detail; } catch(_) {}
+      setMsg(detail, true);
+      return;
+    }
+    closeStaffModal();
+    await loadStaff();
+  } catch(e) {
+    if (e && e.message === 'Unauthorized') return;
+    setMsg('Network error — could not reach API.', true);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save';
+  }
+}
+
+// Delegated click handler for the (dynamically re-rendered) staff table.
+document.getElementById('staff-panel-content').addEventListener('click', (e) => {
+  const editBtn = e.target.closest('.staff-edit-zones-btn');
+  if (editBtn) openEditStaffZonesModal(editBtn.dataset.userId);
+});
+
 // ── Tab switching ──────────────────────────────────────────────────────────────
 function switchTab(tab, el) {
   document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
   document.getElementById('tab-alerts').style.display    = tab === 'alerts'    ? 'flex' : 'none';
   document.getElementById('tab-analytics').style.display = tab === 'analytics' ? 'block' : 'none';
+  document.getElementById('tab-devices').style.display   = tab === 'devices'   ? 'block' : 'none';
+  document.getElementById('tab-staff').style.display     = tab === 'staff'     ? 'block' : 'none';
   if (tab === 'analytics') loadAnalytics();
+  if (tab === 'devices') { renderDeviceAdminControls(); loadDevices(); }
+  if (tab === 'staff') loadStaff();
 }
 
 // ── Filter ─────────────────────────────────────────────────────────────────────

@@ -35,6 +35,9 @@ let filterSev    = null;       // null | high | medium | low
 let ws           = null;
 let currentAudio = null;
 let session      = null;
+let pushState    = 'off';      // 'off' | 'on' | 'unavailable' — mirrors the bell button
+let checkin          = null;   // {location_id, location_name, checked_in_at, expired} | null (FR30)
+let checkinLocations = [];     // [{location_id, location_name}, ...]
 
 // ── DOM helpers ─────────────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
@@ -90,10 +93,16 @@ async function login(ev) {
 }
 
 function logout() {
+  unsubscribePushBestEffort();            // best-effort — never block sign-out on it
   localStorage.removeItem(SESSION_KEY);   // drops the JWT along with the profile
   session = null;
   if (ws) { try { ws.onclose = null; ws.close(); } catch {} ws = null; }
   if (currentAudio) { try { currentAudio.pause(); } catch {} currentAudio = null; }
+  // The check-in itself persists server-side (TTL handles staleness) — only
+  // the local card resets, so the next login re-fetches the true state
+  // instead of showing whatever was last rendered.
+  checkin = null; checkinLocations = [];
+  const card = $('checkin-card'); if (card) card.innerHTML = '';
   $('app').hidden = true;
   $('login-view').hidden = false;
 }
@@ -125,6 +134,7 @@ function init() {
   $('login-form').addEventListener('submit', login);
   $('btn-logout').addEventListener('click', logout);
   $('btn-refresh').addEventListener('click', () => { loadAlerts(); loadStats(); });
+  $('btn-push').addEventListener('click', togglePush);
   $('detail-back').addEventListener('click', closeDetail);
   document.querySelectorAll('.chip').forEach((c) =>
     c.addEventListener('click', () => setFilter(c.dataset.filter, c)));
@@ -138,12 +148,14 @@ function startApp() {
   $('app').hidden = false;
   $('who').textContent = `${session.user.name} · ${session.user.role}`;
   connectWS();
-  loadAlerts();
+  loadAlerts().then(consumeAlertHash);
   loadStats();
+  loadCheckin();  // FR30 — zone check-in card
   // Gentle background refresh as a safety net behind the live socket.
   clearInterval(window._alertPoll); clearInterval(window._statPoll);
   window._alertPoll = setInterval(loadAlerts, 30000);
   window._statPoll  = setInterval(loadStats, 15000);
+  initPush();   // silent reconciliation — never prompts (FR9/FR12)
 }
 
 // ── WebSocket live feed ─────────────────────────────────────────────────────
@@ -179,6 +191,7 @@ function handleIncomingAlert(msg) {
     status: 'active', location_name: msg.location_name, transcript: msg.transcript,
     threat_score: msg.threat_score, classification: msg.classification,
     audio_url: msg.audio_url, created_at: msg.timestamp,
+    nearest_staff: msg.nearest_staff || null,   // FR30 — who's closest to respond
   });
   renderList();
   loadStats();
@@ -320,6 +333,14 @@ function renderDetail(a) {
     <div class="label">Transcript</div>
     <div class="box"><div class="transcript-text">${highlight(a.transcript || 'No speech detected in this clip.')}</div></div>
 
+    ${Array.isArray(a.nearest_staff) && a.nearest_staff.length ? `
+    <div class="label">Nearest staff</div>
+    <div class="meta-row">
+      ${a.nearest_staff.map((s) => `<span class="pill">${escHtml(s.name || 'Staff')} · ${
+        s.assigned_here ? 'assigned here' : escHtml(fmt(s.distance, ' away', 1))
+      }${s.checked_in ? ' · checked in' : ''}</span>`).join('')}
+    </div>` : ''}
+
     ${a.audio_url ? `
     <div class="label">Audio</div>
     <div class="box audio-player">
@@ -434,6 +455,126 @@ async function resolveAlert(alertId) {
   }
 }
 
+// ── Staff zone check-in (FR30) ──────────────────────────────────────────────
+// Lets a teacher mark which zone they're physically in, so alert detail's
+// "Nearest staff" list can show a live "checked in" hint alongside "assigned
+// here"/distance. Server contract:
+//   GET    /api/staff/checkin → {checkin, locations, ttl_seconds}
+//   PUT    /api/staff/checkin {location_id} → checkin object
+//   DELETE /api/staff/checkin → {status:"checked_out"} (404 if none)
+// The check-in persists across logout intentionally (server TTL handles
+// staleness) — logout() only clears the local card so the next login
+// re-fetches the true state instead of showing stale data.
+async function loadCheckin() {
+  try {
+    const res = await authFetch(`${API}/api/staff/checkin`);
+    if (!res.ok) { console.warn('checkin: load failed', res.status); return; }
+    const data = await res.json();
+    checkin = data.checkin || null;
+    checkinLocations = data.locations || [];
+    renderCheckinCard();
+  } catch (err) {
+    console.warn('checkin: load failed', err);
+  }
+}
+
+async function doCheckIn() {
+  const sel = $('checkin-select');
+  const locationId = sel?.value;
+  if (!locationId) return;
+  const btn = $('checkin-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Checking in…'; }
+  try {
+    const res = await authFetch(`${API}/api/staff/checkin`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ location_id: locationId }),
+    });
+    if (res.ok) {
+      checkin = await res.json();
+      renderCheckinCard();
+    } else {
+      console.warn('checkin: check-in failed', res.status);
+      if (btn) { btn.disabled = false; btn.textContent = 'Check in'; }
+    }
+  } catch (err) {
+    console.warn('checkin: check-in failed', err);
+    if (btn) { btn.disabled = false; btn.textContent = 'Check in'; }
+  }
+}
+
+async function doCheckOut() {
+  const btn = $('checkout-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Checking out…'; }
+  try {
+    const res = await authFetch(`${API}/api/staff/checkin`, { method: 'DELETE' });
+    if (res.ok || res.status === 404) {
+      checkin = null;
+      renderCheckinCard();
+    } else {
+      console.warn('checkin: check-out failed', res.status);
+      if (btn) { btn.disabled = false; btn.textContent = 'Check out'; }
+    }
+  } catch (err) {
+    console.warn('checkin: check-out failed', err);
+    if (btn) { btn.disabled = false; btn.textContent = 'Check out'; }
+  }
+}
+
+// Coarse relative time for the "since" label — no need for second-level
+// precision here, the TTL/expiry flag already conveys freshness.
+function fmtRelative(iso) {
+  if (!iso) return '—';
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1)  return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24)  return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+function checkinOptionsHtml(selectedId) {
+  return checkinLocations.map((l) => `<option value="${escHtml(l.location_id)}"${
+    l.location_id === selectedId ? ' selected' : ''
+  }>${escHtml(l.location_name)}</option>`).join('');
+}
+
+function renderCheckinCard() {
+  const el = $('checkin-card');
+  if (!el) return;
+
+  if (checkin && !checkin.expired) {
+    el.className = 'checkin-card checked-in';
+    el.innerHTML = `
+      <span class="pill teal">You're at: ${escHtml(checkin.location_name)} · since ${escHtml(fmtRelative(checkin.checked_in_at))}</span>
+      <button class="btn-checkout" id="checkout-btn">Check out</button>`;
+    $('checkout-btn').addEventListener('click', doCheckOut);
+    return;
+  }
+
+  if (checkin && checkin.expired) {
+    el.className = 'checkin-card expired';
+    el.innerHTML = `
+      <span class="pill">${escHtml(checkin.location_name)} · since ${escHtml(fmtRelative(checkin.checked_in_at))} (expired)</span>
+      <div class="checkin-row">
+        <select id="checkin-select">${checkinOptionsHtml(checkin.location_id)}</select>
+        <button class="btn-checkin" id="checkin-btn">Check in</button>
+      </div>`;
+    $('checkin-btn').addEventListener('click', doCheckIn);
+    return;
+  }
+
+  el.className = 'checkin-card';
+  if (!checkinLocations.length) { el.innerHTML = ''; return; }   // nothing to offer — stays collapsed
+  el.innerHTML = `
+    <div class="checkin-row">
+      <span class="checkin-label">Check in to a zone</span>
+      <select id="checkin-select">${checkinOptionsHtml(null)}</select>
+      <button class="btn-checkin" id="checkin-btn">Check in</button>
+    </div>`;
+  $('checkin-btn').addEventListener('click', doCheckIn);
+}
+
 // ── Filters ─────────────────────────────────────────────────────────────────
 function setFilter(val, el) {
   document.querySelectorAll('.chip').forEach((c) => c.classList.remove('active'));
@@ -459,10 +600,172 @@ function fmtDateTime(iso) {
   return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
+// ── Web Push (FR9/FR12) — alerts while the app is closed ────────────────────
+// Server contract:
+//   GET    /api/push/public-key → {"public_key": <base64url VAPID key|"">, "enabled": bool}
+//   POST   /api/push/subscribe  {endpoint, keys:{p256dh, auth}} → upserts (idempotent)
+//   DELETE /api/push/subscribe  {endpoint}
+// We only ever store the browser's PushSubscription (endpoint + keys) — never
+// more. Every step degrades silently (console.warn) so a push failure can
+// never break login, the alert feed, or the WebSocket.
+let pushPublicKey = null;   // cached VAPID key, fetched once
+let pushEnabled   = false;  // backend flag from /api/push/public-key
+
+// Converts a base64url VAPID key (as the backend/W3C Push API expect) into the
+// Uint8Array applicationServerKey subscribe() needs. Standard boilerplate.
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+
+function pushSupported() {
+  return 'serviceWorker' in navigator && 'PushManager' in window && window.isSecureContext;
+}
+
+function setBell(state) {
+  pushState = state;
+  const btn = $('btn-push');
+  if (!btn) return;
+  btn.classList.remove('on', 'unavailable');
+  if (state === 'on') { btn.classList.add('on'); btn.title = 'Push notifications on — tap to turn off'; }
+  else if (state === 'unavailable') {
+    btn.classList.add('unavailable');
+    btn.title = 'Push unavailable on this origin (needs HTTPS / localhost — see README)';
+  } else {
+    btn.title = 'Push notifications off — tap to turn on';
+  }
+}
+
+// Fetches the VAPID key + enabled flag once per session. Not behind authFetch
+// since it's harmless config, but the endpoint lives under /api regardless.
+async function loadPushConfig() {
+  if (pushPublicKey !== null) return true;   // already fetched this session
+  try {
+    const res = await authFetch(`${API}/api/push/public-key`);
+    if (!res.ok) return false;
+    const data = await res.json();
+    pushPublicKey = data.public_key || '';
+    pushEnabled = !!data.enabled;
+    return !!(pushEnabled && pushPublicKey);
+  } catch (err) {
+    console.warn('push: could not load config', err);
+    return false;
+  }
+}
+
+async function sendSubscription(sub) {
+  const json = sub.toJSON();
+  await authFetch(`${API}/api/push/subscribe`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ endpoint: json.endpoint, keys: json.keys }),
+  });
+}
+
+// Runs once after login/startApp. Never prompts for permission on its own —
+// only reconciles an *existing* grant/subscription so the bell reflects
+// reality and the server's endpoint mapping stays current (idempotent POST).
+async function initPush() {
+  if (!pushSupported()) { setBell('unavailable'); return; }
+  const ok = await loadPushConfig();
+  if (!ok) { setBell('unavailable'); return; }
+
+  if (Notification.permission !== 'granted') { setBell('off'); return; }
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      await sendSubscription(sub);   // upsert — keeps server mapping fresh
+      setBell('on');
+    } else {
+      setBell('off');
+    }
+  } catch (err) {
+    console.warn('push: reconcile failed', err);
+    setBell('off');
+  }
+}
+
+// Bell click handler — the ONLY place we ask for Notification permission,
+// always in direct response to this user gesture (browsers require it).
+async function togglePush() {
+  if (pushState === 'unavailable') return;
+
+  if (pushState === 'on') {
+    await unsubscribePushBestEffort();
+    setBell('off');
+    return;
+  }
+
+  const ok = await loadPushConfig();
+  if (!ok) { setBell('unavailable'); return; }
+
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') { setBell('off'); return; }
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(pushPublicKey),
+    });
+    await sendSubscription(sub);
+    setBell('on');
+  } catch (err) {
+    console.warn('push: subscribe failed', err);
+    setBell('off');
+  }
+}
+
+// Best-effort unsubscribe — used both by the bell toggle and on logout.
+// Never throws: a failed unsubscribe must not block sign-out or the UI.
+async function unsubscribePushBestEffort() {
+  if (!session?.token) return;   // nothing we can authenticate the DELETE with
+  try {
+    if (!('serviceWorker' in navigator)) return;
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (!reg) return;
+    const sub = await reg.pushManager.getSubscription();
+    if (!sub) return;
+    const endpoint = sub.endpoint;
+    await sub.unsubscribe();
+    await authFetch(`${API}/api/push/subscribe`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint }),
+    });
+  } catch (err) {
+    console.warn('push: unsubscribe failed', err);
+  }
+}
+
+// ── Opening an alert from a push notification tap ───────────────────────────
+// Fired either by service-worker "message" (app already open) or by the
+// '#alert=' URL hash the worker's notificationclick uses to open a new tab.
+async function handleOpenAlert(alertId) {
+  if (!alertId) return;
+  if (!alerts.length) { try { await loadAlerts(); } catch {} }
+  selectAlert(alertId);
+}
+
+function consumeAlertHash() {
+  const m = /#alert=([^&]+)/.exec(location.hash);
+  if (!m) return;
+  const alertId = decodeURIComponent(m[1]);
+  history.replaceState(null, '', location.pathname + location.search);   // clear the hash
+  handleOpenAlert(alertId);
+}
+
 // ── Service worker registration (enables install + offline shell) ───────────
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('service-worker.js').catch(() => {});
+  });
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data?.type === 'OPEN_ALERT') handleOpenAlert(event.data.alert_id);
   });
 }
 

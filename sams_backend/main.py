@@ -13,8 +13,11 @@ Docs: http://localhost:8000/docs
 import logging
 from pathlib import Path
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -27,6 +30,9 @@ from api.analytics import router as analytics_router
 from api.auth      import router as auth_router
 from api.admin     import router as admin_router
 from api.reports   import router as reports_router
+from api.devices   import router as devices_router
+from api.push      import router as push_router
+from api.checkin   import router as checkin_router
 from api.dependencies import get_ws_manager, get_mqtt, resolve_token_user, _SessionFactory
 from models.database import StaffLocation
 
@@ -71,6 +77,23 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+
+# ── Validation errors — redact credential material ────────────────────────────
+# FastAPI's default 422 body echoes each field's submitted `input`. For password
+# fields that would leak the plaintext (login, admin staff creation), so we strip
+# `input` (and any `ctx`) from errors whose location includes a password field.
+_SENSITIVE_FIELDS = {"password"}
+
+@app.exception_handler(RequestValidationError)
+async def _redact_validation_errors(request: Request, exc: RequestValidationError):
+    cleaned = []
+    for err in exc.errors():
+        loc = err.get("loc", ())
+        if any(part in _SENSITIVE_FIELDS for part in loc):
+            err = {k: v for k, v in err.items() if k not in ("input", "ctx")}
+        cleaned.append(err)
+    return JSONResponse(status_code=422, content={"detail": jsonable_encoder(cleaned)})
+
 # ── CORS ──────────────────────────────────────────────────────────────────────
 # Explicit allow-list from settings. In development we also accept any origin
 # (via allow_origin_regex, which — unlike allow_origins=["*"] — is compatible
@@ -95,6 +118,9 @@ app.include_router(analytics_router)
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(reports_router)
+app.include_router(devices_router)
+app.include_router(push_router)
+app.include_router(checkin_router)
 
 
 # ── MODULE 4: WebSocket endpoint for dashboard real-time feed ─────────────────

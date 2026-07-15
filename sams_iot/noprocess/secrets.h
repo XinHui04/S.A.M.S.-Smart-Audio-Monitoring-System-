@@ -1,10 +1,10 @@
 // ── WiFi ────────────────────────────────────────────────────────────────
-#define WIFI_SSID     "OPPO A92"
-#define WIFI_PASSWORD "brightstart"
+#define WIFI_SSID     "Connecting_2.4GHz"
+#define WIFI_PASSWORD "0122260030"
 
 // ── Backend server (FastAPI) ────────────────────────────────────────────
 // LAN IP of the PC running the backend — reconfigure before each upload.
-#define SERVER_IP     "172.16.40.144"
+#define SERVER_IP     "192.168.100.18"
 #define SERVER_PORT   8000
 
 // ── Supabase Storage ────────────────────────────────────────────────────

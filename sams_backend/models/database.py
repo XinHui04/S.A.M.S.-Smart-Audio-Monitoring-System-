@@ -116,6 +116,66 @@ class EmotionAnalysis(Base):
     confidence = Column(Float)    # 0.0–1.0 top-class score
 
 
+class DeviceHeartbeat(Base):
+    """
+    FR29 — device liveness. One row per device, upserted on each ping/ingestion.
+    Status (online/offline) is derived by the API layer as "online" when
+    last_seen is within DEVICE_OFFLINE_AFTER_SECONDS of now. NEW table only:
+    existing tables are never altered (live Postgres).
+    """
+    __tablename__ = "device_heartbeats"
+
+    device_id = Column(String, ForeignKey("devices.device_id"), primary_key=True)
+    last_seen = Column(DateTime, default=datetime.utcnow)
+
+
+class DeviceCredential(Base):
+    """
+    FR25 — per-device API key. key_hash stores the SHA-256 hash of the issued
+    key; the plaintext key is shown to the admin once, at issuance, and never
+    persisted. Devices WITH a row here must authenticate with that key
+    (fail-closed); devices without one fall back to the global DEVICE_API_KEY
+    behavior (fail-open, demo continuity). NEW table only: existing tables are
+    never altered (live Postgres).
+    """
+    __tablename__ = "device_credentials"
+
+    device_id  = Column(String, ForeignKey("devices.device_id"), primary_key=True)
+    key_hash   = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class LocationPosition(Base):
+    """
+    FR28 — position of the location on the dashboard's schematic school map,
+    stored as map_x/map_y percentages (0-100) of the map canvas. Also used for
+    FR30 nearest-staff distance ranking. NEW table only: existing tables are
+    never altered (live Postgres).
+    """
+    __tablename__ = "location_positions"
+
+    location_id = Column(String, ForeignKey("locations.location_id"), primary_key=True)
+    map_x       = Column(Float, nullable=False)   # 0-100, % of map canvas width
+    map_y       = Column(Float, nullable=False)   # 0-100, % of map canvas height
+
+
+class PushSubscription(Base):
+    """
+    FR9/FR12 — Web Push subscription for a browser/device of a signed-in user.
+    One row per subscribed browser; pruned automatically when the push service
+    returns 404/410 (the subscription has expired or been revoked). NEW table
+    only: existing tables are never altered (live Postgres).
+    """
+    __tablename__ = "push_subscriptions"
+
+    subscription_id = Column(String, primary_key=True, default=generate_id)
+    user_id         = Column(String, ForeignKey("users.user_id"), nullable=False, index=True)
+    endpoint        = Column(Text, nullable=False, unique=True)
+    p256dh          = Column(String, nullable=False)
+    auth            = Column(String, nullable=False)
+    created_at      = Column(DateTime, default=datetime.utcnow)
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -138,6 +198,24 @@ class StaffLocation(Base):
 
     user_id     = Column(String, ForeignKey("users.user_id"), primary_key=True)
     location_id = Column(String, ForeignKey("locations.location_id"), primary_key=True)
+
+
+class StaffCheckin(Base):
+    """
+    FR30 — voluntary self-reported zone check-in from the teacher PWA. A staff
+    member "checks in" to whichever zone they are currently in; the FR30
+    nearest-staff ranking then prefers this live zone over their static
+    StaffLocation assignments. One row per user, overwritten on re-check-in,
+    deleted on check-out; ignored (treated as absent) once older than
+    settings.checkin_ttl_seconds. Privacy: zone-level only — no GPS, no
+    location history is kept. NEW table only: existing tables are never
+    altered (live Postgres).
+    """
+    __tablename__ = "staff_checkins"
+
+    user_id       = Column(String, ForeignKey("users.user_id"), primary_key=True)
+    location_id   = Column(String, ForeignKey("locations.location_id"), nullable=False)
+    checked_in_at = Column(DateTime, default=datetime.utcnow)
 
 
 class Alert(Base):

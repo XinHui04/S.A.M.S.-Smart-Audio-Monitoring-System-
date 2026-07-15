@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from models.database import Alert, Event, Device, Location, AudioClip, Transcript, Analysis, User, StaffLocation, EmotionAnalysis
 from models.schemas import AlertResolveRequest
 from api.dependencies import get_db, get_current_user
+from utils.nearest_staff import compute_nearest_staff
 
 router = APIRouter(prefix="/api/alerts", tags=["Module 3+4 — Alerts & Dashboard"])
 logger = logging.getLogger(__name__)
@@ -168,7 +169,11 @@ async def get_alert(alert_id: str, db: Session = Depends(get_db), user: User = D
     if not alert:
         raise HTTPException(404, "Alert not found")
     _assert_alert_access(alert, user, db)   # FR16
-    return _enrich_alert(alert, db)
+    detail = _enrich_alert(alert, db)
+    # FR30: display-side nearest-staff hint (read-only; delivery routing
+    # unchanged). Kept off the lean feed (GET /) — detail view only.
+    detail["nearest_staff"] = compute_nearest_staff(db, detail["location_id"])
+    return detail
 
 
 @router.put("/{alert_id}/acknowledge", summary="Staff acknowledges an alert — being handled")

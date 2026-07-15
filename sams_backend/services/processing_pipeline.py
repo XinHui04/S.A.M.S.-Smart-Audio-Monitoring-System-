@@ -50,6 +50,7 @@ from models.schemas import ProcessingResponse, TranscriptResult, AnalysisResult
 from services.audio_capture_service import AudioCaptureService
 from services.stt_service import STTService
 from services.nlp_service import NLPService
+from utils.nearest_staff import compute_nearest_staff
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,7 @@ class ProcessingPipeline:
         ser           = None,               # SERService (§2.1.3) — None disables SER
         ser_boost:          float = 0.15,   # threat-score boost on negative emotion
         ser_min_confidence: float = 0.60,   # min SER confidence to apply the boost
+        push          = None,               # PushService (FR9/FR12) — None disables Web Push
     ):
         self.audio_capture = audio_capture
         self.stt           = stt
@@ -88,6 +90,7 @@ class ProcessingPipeline:
         self.ser                = ser
         self.ser_boost          = ser_boost
         self.ser_min_confidence = ser_min_confidence
+        self.push               = push
 
     async def process(
         self,
@@ -234,6 +237,10 @@ class ProcessingPipeline:
             location      = db.query(Location).filter(Location.location_id == location_id).first()
             location_name = location.location_name if location else location_id
 
+            # FR30: display-side nearest-staff hint. Never let a ranking error
+            # block the alert broadcast — log and send None (routing unchanged).
+            nearest_staff = self._safe_nearest_staff(db, location_id)
+
             # ── MODULE 4: WebSocket push to dashboard ─────────────────────────
             await self.ws.broadcast_alert(
                 alert_id       = alert.alert_id,
@@ -249,6 +256,7 @@ class ProcessingPipeline:
                 stt_confidence    = stt_confidence,
                 nlp_confidence    = threat.model_confidence,
                 scream_confidence = edge_confidence,
+                nearest_staff     = nearest_staff,   # FR30 display-side hint
             )
 
             # ── MODULE 4: MQTT fan-out to external subscribers (Figs 4.1/4.2) ──
@@ -267,6 +275,17 @@ class ProcessingPipeline:
                     stt_confidence    = stt_confidence,
                     nlp_confidence    = threat.model_confidence,
                     scream_confidence = edge_confidence,
+                )
+
+            # ── FR9/FR12: Web Push fan-out (fire-and-forget, never blocks) ────
+            if self.push is not None:
+                self.push.fire_and_forget(
+                    alert_id      = alert.alert_id,
+                    event_id      = event.event_id,
+                    location_id   = location_id,   # FR16: route to assigned staff
+                    location_name = location_name,
+                    severity      = threat.severity_level,
+                    timestamp     = event.timestamp.isoformat(),
                 )
 
             logger.warning(
@@ -485,6 +504,10 @@ class ProcessingPipeline:
             location      = db.query(Location).filter(Location.location_id == location_id).first()
             location_name = location.location_name if location else location_id
 
+            # FR30: display-side nearest-staff hint. Never let a ranking error
+            # block the alert broadcast — log and send None (routing unchanged).
+            nearest_staff = self._safe_nearest_staff(db, location_id)
+
             # ── MODULE 4: WebSocket push to dashboard ─────────────────────────
             await self.ws.broadcast_alert(
                 alert_id       = alert.alert_id,
@@ -502,6 +525,7 @@ class ProcessingPipeline:
                 stt_confidence     = stt_confidence,
                 nlp_confidence     = nlp_confidence,
                 scream_confidence  = scream_confidence,
+                nearest_staff      = nearest_staff,   # FR30 display-side hint
             )
 
             # ── MODULE 4: MQTT fan-out to external subscribers (Figs 4.1/4.2) ──
@@ -522,6 +546,17 @@ class ProcessingPipeline:
                     stt_confidence     = stt_confidence,
                     nlp_confidence     = nlp_confidence,
                     scream_confidence  = scream_confidence,
+                )
+
+            # ── FR9/FR12: Web Push fan-out (fire-and-forget, never blocks) ────
+            if self.push is not None:
+                self.push.fire_and_forget(
+                    alert_id      = alert.alert_id,
+                    event_id      = event.event_id,
+                    location_id   = location_id,   # FR16: route to assigned staff
+                    location_name = location_name,
+                    severity      = severity,
+                    timestamp     = event.timestamp.isoformat(),
                 )
 
             logger.warning(
@@ -548,6 +583,19 @@ class ProcessingPipeline:
             "nlp_confidence":     nlp_confidence,
             "scream_confidence":  scream_confidence,
         }
+
+    @staticmethod
+    def _safe_nearest_staff(db: Session, location_id: str):
+        """
+        FR30 — compute the nearest-staff hint for the live broadcast, guarded so
+        a ranking error never blocks an alert. Returns None on any failure
+        (display-side only; FR16 delivery routing is unaffected).
+        """
+        try:
+            return compute_nearest_staff(db, location_id)
+        except Exception as e:
+            logger.warning(f"FR30 nearest-staff computation failed: {e} — sending None.")
+            return None
 
     def _cleanup_local_working_copy(self, file_ref: str, local_path: str) -> None:
         """

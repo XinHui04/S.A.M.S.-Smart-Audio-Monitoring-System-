@@ -12,7 +12,10 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from models.database import create_db_engine, get_session_factory, resolve_database_url, Location, Device, User, StaffLocation
+from models.database import (
+    create_db_engine, get_session_factory, resolve_database_url,
+    Location, Device, User, StaffLocation, LocationPosition,
+)
 from utils.auth import hash_password
 from config.settings import get_settings
 
@@ -25,6 +28,19 @@ LOCATIONS = [
     {"location_id": "loc-004", "location_name": "Stairwell South"},
     {"location_id": "loc-005", "location_name": "Secluded Corridor Block C"},
     {"location_id": "loc-006", "location_name": "Changing Room (Sports Hall)"},
+]
+
+# FR28: schematic school map coordinates (0-100 % of the map canvas) for each
+# location — laid out as a plausible floor plan: toilets on the left/right
+# wings, stairwells at the far corners, the corridor in the center, and the
+# changing room toward the bottom (near the sports hall).
+LOCATION_POSITIONS = [
+    {"location_id": "loc-001", "map_x": 15, "map_y": 20},   # Toilet Block A — left wing, upper floor
+    {"location_id": "loc-002", "map_x": 85, "map_y": 20},   # Toilet Block B — right wing, upper floor
+    {"location_id": "loc-003", "map_x": 10, "map_y": 85},   # Stairwell North — bottom-left corner
+    {"location_id": "loc-004", "map_x": 90, "map_y": 85},   # Stairwell South — bottom-right corner
+    {"location_id": "loc-005", "map_x": 50, "map_y": 50},   # Secluded Corridor Block C — map center
+    {"location_id": "loc-006", "map_x": 50, "map_y": 90},   # Changing Room (Sports Hall) — bottom center
 ]
 
 DEVICES = [
@@ -69,6 +85,13 @@ def seed():
             db.add(Location(**loc))
     db.commit()
     print(f"  {len(LOCATIONS)} locations ready.")
+
+    print("Seeding location positions (FR28)...")
+    for pos in LOCATION_POSITIONS:
+        if not db.query(LocationPosition).filter_by(location_id=pos["location_id"]).first():
+            db.add(LocationPosition(**pos))
+    db.commit()
+    print(f"  {len(LOCATION_POSITIONS)} location positions ready.")
 
     print("Seeding devices...")
     for dev in DEVICES:

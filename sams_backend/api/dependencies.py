@@ -4,17 +4,20 @@ Singleton wiring — all 4 modules instantiated once at startup.
 Also hosts the auth dependencies (FR23): JWT bearer for staff endpoints,
 X-API-Key check for device ingestion.
 """
+import hashlib
 import hmac
 import logging
 from typing import Optional
 
 import jwt
-from fastapi import Depends, Header, HTTPException, Query
+from fastapi import Depends, Form, Header, HTTPException, Query
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from config.settings import get_settings
-from models.database import User, create_db_engine, get_session_factory
+from models.database import (
+    DeviceCredential, User, create_db_engine, get_session_factory,
+)
 from services.audio_capture_service import AudioCaptureService
 from services.stt_service import STTService
 from services.nlp_service import NLPService
@@ -23,6 +26,7 @@ from services.processing_pipeline import ProcessingPipeline
 from services.websocket_manager import WebSocketManager
 from services.mqtt_service import MqttService
 from services.storage_service import AudioStorageService
+from services.push_service import PushService
 
 cfg = get_settings()
 
@@ -59,6 +63,12 @@ _mqtt       = MqttService(
     use_tls  = cfg.mqtt_use_tls,
     qos      = cfg.mqtt_qos,
 )
+_push       = PushService(
+    vapid_public_key  = cfg.vapid_public_key,
+    vapid_private_key = cfg.vapid_private_key,
+    vapid_subject     = cfg.vapid_subject,
+    session_factory   = _SessionFactory,
+)
 
 _pipeline = ProcessingPipeline(
     audio_capture = _audio_capture,
@@ -72,6 +82,7 @@ _pipeline = ProcessingPipeline(
     ser                = _ser,
     ser_boost          = cfg.ser_boost,
     ser_min_confidence = cfg.ser_min_confidence,
+    push               = _push,
 )
 
 # ── Dependency functions ──────────────────────────────────────────────────────
@@ -91,6 +102,9 @@ def get_ws_manager() -> WebSocketManager:
 
 def get_mqtt() -> MqttService:
     return _mqtt
+
+def get_push() -> PushService:
+    return _push
 
 def get_audio_capture() -> AudioCaptureService:
     return _audio_capture
@@ -179,11 +193,67 @@ def verify_device_key(
     x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
 ):
     """
-    Device ingestion guard (ESP32 → cloud). Opt-in: when DEVICE_API_KEY is
-    empty the endpoints stay open (demo mode); when set, the X-API-Key header
+    Global device ingestion guard (ESP32 → cloud). Opt-in: when DEVICE_API_KEY
+    is empty the endpoints stay open (demo mode); when set, the X-API-Key header
     must match (constant-time compare — no timing side channel).
+
+    Header-only: it cannot see a per-device identity, so it is used where the
+    device_id is not yet known (the Supabase Storage webhook). Endpoints that
+    know the device_id use check_device_key / verify_device_key_form instead.
     """
     if not cfg.device_api_key:
         return
     if not x_api_key or not hmac.compare_digest(x_api_key, cfg.device_api_key):
         raise HTTPException(401, "Invalid device API key")
+
+
+def check_device_key(device_id: str, x_api_key: Optional[str], db: Session) -> None:
+    """
+    Per-device ingestion guard (FR25). Authorizes a request for `device_id`,
+    raising HTTPException(401) with an identical, non-revealing detail otherwise.
+
+    Rules:
+      • Device WITH a DeviceCredential row → fail-closed: an X-API-Key header is
+        REQUIRED and its SHA-256 digest must match the stored hash
+        (constant-time compare).
+      • Device WITHOUT a credential row → fall back to the global DEVICE_API_KEY
+        behavior (fail-open demo continuity): require the global key when it is
+        configured, else allow.
+
+    The error never discloses whether the device is enrolled.
+    """
+    cred = (
+        db.query(DeviceCredential)
+          .filter(DeviceCredential.device_id == device_id)
+          .first()
+    )
+    if cred is not None:
+        if not x_api_key:
+            raise HTTPException(401, "Invalid device API key")
+        presented = hashlib.sha256(x_api_key.encode()).hexdigest()
+        if not hmac.compare_digest(presented, cred.key_hash):
+            raise HTTPException(401, "Invalid device API key")
+        return
+
+    # Un-enrolled device → global-key fallback.
+    if not cfg.device_api_key:
+        return
+    if not x_api_key or not hmac.compare_digest(x_api_key, cfg.device_api_key):
+        raise HTTPException(401, "Invalid device API key")
+
+
+def verify_device_key_form(
+    device_id: str = Form(...),
+    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
+    db: Session = Depends(get_db),
+):
+    """
+    Device-aware ingestion guard for form endpoints whose device_id lives in the
+    request body (POST /api/events/audio). Declared as a dependency that reads
+    device_id as a Form field so the auth check runs DURING dependency
+    resolution — before the endpoint's other required Form fields are validated.
+    This preserves the 401-before-422 contract (an unauthenticated caller is
+    rejected before body-shape errors leak) while still enforcing the per-device
+    key via check_device_key.
+    """
+    check_device_key(device_id, x_api_key, db)
