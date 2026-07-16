@@ -96,7 +96,9 @@ class Analysis(Base):
     transcript_id  = Column(String, ForeignKey("transcripts.transcript_id"), nullable=False, index=True)
     severity_level = Column(String)   # low | medium | high
     classification = Column(String)   # verbal_bullying | threat | distress | normal
-    threat_score   = Column(Float)    # 0.0–1.0 final NLP confidence
+    threat_score   = Column(Float)    # 0.0–1.0 NLP score (SER-boosted, excludes scream)
+    # Score the alert is actually judged on: max(threat_score, scream_confidence).
+    final_threat_score = Column(Float)
 
     transcript = relationship("Transcript", back_populates="analysis")
 

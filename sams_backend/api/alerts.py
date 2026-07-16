@@ -84,6 +84,7 @@ def _enrich_alert(alert: Alert, db: Session) -> dict:
         "location_id":    device.location_id if device else None,
         "transcript":     transcript.text if transcript else None,
         "threat_score":   analysis.threat_score if analysis else None,
+        "final_threat_score": analysis.final_threat_score if analysis else None,
         "classification": analysis.classification if analysis else None,
         "intensity":      event.intensity if event else None,
         "pitch":          event.pitch if event else None,

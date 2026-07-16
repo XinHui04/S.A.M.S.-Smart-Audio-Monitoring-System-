@@ -8,9 +8,12 @@ Report §2.1.3: analyses the *tone* of the captured speech, complementing
 scream detection (acoustic) and NLP (semantic). A distressed or angry tone
 can escalate a borderline transcript into an alert.
 
-Model: superb/wav2vec2-base-superb-er (SUPERB emotion-recognition head on
-wav2vec2-base, trained on IEMOCAP). 4 classes: ang / hap / neu / sad.
-~380 MB, downloads on first run, ~0.4 s inference on CPU for a 6 s clip.
+Model: Wiam/wav2vec2-lg-xlsr-en-speech-emotion-recognition-finetuned-ravdess-v8
+(wav2vec2-large-xlsr fine-tuned on RAVDESS). 8 classes: angry / calm / disgust
+/ fearful / happy / neutral / sad / surprised. ~1.2 GB, downloads on first run.
+Chosen over ehcalabres/...ser (identical labels) because that checkpoint's
+classifier head does not load on current transformers — its weights are
+silently randomised, collapsing every prediction to ~uniform 0.125.
 
 Design mirrors nlp_service.py: lazy model load + graceful fallback — a SER
 failure must NEVER break the pipeline, so analyse() returns None on any
@@ -30,17 +33,17 @@ import threading
 
 logger = logging.getLogger(__name__)
 
-# Map the terse SUPERB labels (and the 8-class ehcalabres alternative's full
-# words, which pass through unchanged) to full lowercase emotion words.
-_LABEL_MAP = {
-    "ang": "angry",
-    "hap": "happy",
-    "neu": "neutral",
-    "sad": "sad",
-    # ehcalabres/wav2vec2-lg-xlsr-en-speech-emotion-recognition labels are
-    # already full words (angry, calm, disgust, fearful, happy, neutral,
-    # sad, surprised) — normalised to lowercase below.
-}
+# Translation table, NOT the class list — the classes come from the model's own
+# config (id2label). The default model's 8 labels are already full words (angry,
+# calm, disgust, fearful, happy, neutral, sad, surprised) so they pass through
+# _normalise_label() untouched. These entries exist only for the terse-label
+# SUPERB fallback (SER_MODEL=superb/wav2vec2-base-superb-er), which abbreviates.
+# _LABEL_MAP = {
+#     "ang": "angry",
+#     "hap": "happy",
+#     "neu": "neutral",
+#     "sad": "sad",
+# }
 
 # Emotions whose vocal tone corroborates a threat/distress situation.
 # Kept here (not config) by design — this is model semantics, not tuning.
@@ -51,12 +54,13 @@ TARGET_SAMPLE_RATE = 16_000
 
 def _normalise_label(label: str) -> str:
     label = label.strip().lower()
-    return _LABEL_MAP.get(label, label)
+    # return _LABEL_MAP.get(label, label)
+    return label
 
 
 class SERService:
 
-    def __init__(self, model_name: str = "superb/wav2vec2-base-superb-er"):
+    def __init__(self, model_name: str = "Wiam/wav2vec2-lg-xlsr-en-speech-emotion-recognition-finetuned-ravdess-v8"):
         self.model_name = model_name
         self._pipeline  = None   # lazy-loaded
         # Guards lazy loading AND inference: prevents double-loading the model
@@ -72,7 +76,6 @@ class SERService:
                 self._pipeline = pipeline(
                     "audio-classification",
                     model = self.model_name,
-                    top_k = None,          # return every class score
                 )
                 logger.info("SER model ready.")
             except ImportError:
@@ -118,7 +121,11 @@ class SERService:
                     return None
 
                 pipe   = self._load()
-                output = pipe(audio, sampling_rate=TARGET_SAMPLE_RATE)
+                output = pipe(
+                    audio,
+                    sampling_rate = TARGET_SAMPLE_RATE,
+                    top_k         = pipe.model.config.num_labels,
+                )
                 # output: [{"label": str, "score": float}, ...] sorted by score desc
                 if not output:
                     logger.warning("SER model returned no scores.")

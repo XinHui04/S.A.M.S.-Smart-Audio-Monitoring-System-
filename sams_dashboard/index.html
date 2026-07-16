@@ -1195,7 +1195,8 @@ function handleIncomingAlert(msg) {
       location_id:    msg.location_id,
       location_name:  msg.location_name,
       transcript:     msg.transcript,
-      threat_score:   msg.threat_score,
+      threat_score:       msg.threat_score,
+      final_threat_score: msg.final_threat_score,
       classification: msg.classification,
       audio_url:      msg.audio_url,
       created_at:     msg.timestamp,
@@ -1338,8 +1339,15 @@ async function selectAlert(alertId) {
 }
 
 function renderDetail(alert) {
-  const score   = alert.threat_score ?? 0;
+  // The alert was judged on the final score (NLP blended with scream confidence),
+  // so the headline figure and bar track it. Alerts stored before the two scores
+  // were split have only threat_score, which held the final score back then.
+  const score   = alert.final_threat_score ?? alert.threat_score ?? 0;
   const scoreW  = Math.round(score * 100);
+  // NLP verdict on the speech alone — absent on legacy rows, shown as "—".
+  const nlpScoreTxt = (alert.final_threat_score === null || alert.final_threat_score === undefined)
+    ? '—'
+    : (Number(alert.threat_score ?? 0) * 100).toFixed(1) + '%';
   const sev     = alert.severity || 'low';
   const isRes   = alert.status === 'resolved';
   const isAck   = alert.status === 'acknowledged';
@@ -1401,7 +1409,7 @@ function renderDetail(alert) {
 
     <div class="detail-grid">
       <div class="detail-field">
-        <div class="field-label">Threat Score</div>
+        <div class="field-label">Final Threat Score</div>
         <div class="field-value" style="color:var(--${sev === 'high' ? 'red' : sev === 'medium' ? 'amber' : 'teal'})">${(score * 100).toFixed(1)}%</div>
       </div>
       <div class="detail-field">
@@ -1419,6 +1427,10 @@ function renderDetail(alert) {
       <div class="detail-field">
         <div class="field-label">Edge Scream Conf</div>
         <div class="field-value">${edgeConfTxt}</div>
+      </div>
+      <div class="detail-field">
+        <div class="field-label">Threat Score</div>
+        <div class="field-value">${nlpScoreTxt}</div>
       </div>
     </div>
 

@@ -50,6 +50,7 @@ from models.schemas import ProcessingResponse, TranscriptResult, AnalysisResult
 from services.audio_capture_service import AudioCaptureService
 from services.stt_service import STTService
 from services.nlp_service import NLPService
+from services.ser_service import NEGATIVE_EMOTIONS
 from utils.nearest_staff import compute_nearest_staff
 
 logger = logging.getLogger(__name__)
@@ -445,7 +446,7 @@ class ProcessingPipeline:
                 db.flush()
 
                 if (
-                    emotion in ("angry", "fearful")
+                    emotion in NEGATIVE_EMOTIONS
                     and emotion_confidence >= self.ser_min_confidence
                 ):
                     boosted = min(1.0, threat_score + self.ser_boost)
@@ -458,9 +459,10 @@ class ProcessingPipeline:
                     threat_score = boosted
 
             # ── Reconcile scream detection with NLP verdict ───────────────────
-            # A detected scream may only RAISE severity, never lower it, and the
-            # persisted/broadcast score must be one consistent value: the blend
-            # of the (boosted) NLP score and the edge scream confidence.
+            # A detected scream may only RAISE severity, never lower it. Both
+            # scores are persisted: threat_score is the (SER-boosted) NLP verdict
+            # on the speech alone, final_score blends in the scream confidence
+            # and is the value the alert is judged and displayed on.
             if is_scream:
                 severity    = _max_severity(severity, scream_severity)
                 final_score = max(threat_score, scream_confidence)
@@ -468,11 +470,12 @@ class ProcessingPipeline:
                 final_score = threat_score
 
             analysis = Analysis(
-                analysis_id    = str(uuid.uuid4()),
-                transcript_id  = transcript.transcript_id,
-                severity_level = severity,
-                classification = classification,
-                threat_score   = final_score,
+                analysis_id        = str(uuid.uuid4()),
+                transcript_id      = transcript.transcript_id,
+                severity_level     = severity,
+                classification     = classification,
+                threat_score       = threat_score,
+                final_threat_score = final_score,
             )
             db.add(analysis)
             db.flush()
@@ -516,7 +519,8 @@ class ProcessingPipeline:
                 event_id       = event.event_id,
                 location_name  = location_name,
                 severity       = severity,
-                threat_score   = final_score,
+                threat_score       = threat_score,   # NLP only (SER-boosted), no scream
+                final_threat_score = final_score,    # blended — the judged score
                 classification = classification,
                 transcript     = stored_text,
                 audio_url      = f"/api/events/{event.event_id}/audio",
@@ -538,7 +542,8 @@ class ProcessingPipeline:
                     location_id    = location_id,
                     location_name  = location_name,
                     severity       = severity,
-                    threat_score   = final_score,
+                    threat_score       = threat_score,   # NLP only (SER-boosted), no scream
+                    final_threat_score = final_score,    # blended — the judged score
                     classification = classification,
                     transcript     = stored_text,
                     audio_url      = f"/api/events/{event.event_id}/audio",
@@ -574,7 +579,8 @@ class ProcessingPipeline:
 
         return {
             "transcript":     stored_text,
-            "threat_score":   final_score,
+            "threat_score":       threat_score,   # NLP only (SER-boosted), no scream
+            "final_threat_score": final_score,    # blended — the judged score
             "severity":       severity,
             "classification": classification,
             "alert_fired":    alert_fired,

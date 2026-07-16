@@ -205,12 +205,20 @@ async def test_scream_with_harmless_speech_fires_alert(seeded):
     )
 
     assert result["alert_fired"] is True
-    # Returned score is max(scream_confidence, nlp_score)
-    assert result["threat_score"] == 0.95
+    # The two scores are reported separately: threat_score is the NLP verdict on
+    # the harmless speech, final_threat_score blends in the scream confidence.
+    assert result["threat_score"] == 0.1
+    assert result["final_threat_score"] == 0.95   # max(nlp=0.1, scream=0.95)
     assert result["alert_id"] is not None
 
     assert seeded.db.query(Alert).count() == 1
     pipeline.ws.broadcast_alert.assert_awaited_once()
+
+    # The dashboard renders the headline score from the broadcast, so both scores
+    # must survive the push — not just the blended one.
+    ws_kwargs = pipeline.ws.broadcast_alert.await_args.kwargs
+    assert ws_kwargs["threat_score"] == 0.1
+    assert ws_kwargs["final_threat_score"] == 0.95
 
 
 @pytest.mark.asyncio
@@ -242,8 +250,10 @@ async def test_stt_failure_fallback_scream_alert_still_fires(seeded):
     analysis = seeded.db.query(Analysis).filter(
         Analysis.transcript_id == transcript.transcript_id
     ).one()
-    # Persisted score is the blended value: max(nlp=0.0, scream_confidence=0.8)
-    assert analysis.threat_score == pytest.approx(0.8)
+    # NLP never ran (no transcript), so the NLP score stays 0.0 and the scream
+    # confidence alone carries the final score.
+    assert analysis.threat_score == pytest.approx(0.0)
+    assert analysis.final_threat_score == pytest.approx(0.8)   # max(nlp=0.0, scream=0.8)
     assert analysis.classification == "scream"
 
     # NLP must be skipped when there is no usable transcript
@@ -274,12 +284,13 @@ async def test_scream_escalates_severity_over_harmless_nlp(seeded):
     assert result["alert_fired"] is True
     # Scream-derived severity (0.95 > 0.7 => high) wins over NLP "low"
     assert result["severity"] == "high"
-    # Blended score: max(nlp=0.05, scream_confidence=0.95)
-    assert result["threat_score"] == 0.95
+    assert result["threat_score"] == 0.05          # NLP alone
+    assert result["final_threat_score"] == 0.95    # max(nlp=0.05, scream=0.95)
 
-    # Persisted Analysis row stores the same blended score (consistency)
+    # Persisted Analysis row carries the same two scores as the returned dict
     analysis = seeded.db.query(Analysis).one()
-    assert analysis.threat_score == 0.95
+    assert analysis.threat_score == 0.05
+    assert analysis.final_threat_score == 0.95
     assert analysis.severity_level == "high"
 
     alert = seeded.db.query(Alert).one()

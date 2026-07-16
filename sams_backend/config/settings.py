@@ -34,12 +34,16 @@ class Settings(BaseSettings):
     threat_score_threshold: float = 0.75
 
     # SER: Speech Emotion Recognition (report §2.1.3) — wav2vec2 audio classifier
-    # (SUPERB/IEMOCAP, 4 classes: angry/happy/neutral/sad, ~380 MB, runs locally).
-    # When a negative emotion (angry/fearful) is detected with confidence >=
-    # ser_min_confidence, the NLP threat score is boosted by ser_boost (cap 1.0)
-    # before the alert-threshold comparison. SER failure never blocks the pipeline.
+    # (RAVDESS, 8 classes: angry/calm/disgust/fearful/happy/neutral/sad/surprised,
+    # ~1.2 GB, runs locally). When a negative emotion (angry/fearful) is detected
+    # with confidence >= ser_min_confidence, the NLP threat score is boosted by
+    # ser_boost (cap 1.0) before the alert-threshold comparison. SER failure never
+    # blocks the pipeline.
+    # NOTE: ehcalabres/wav2vec2-lg-xlsr-en-speech-emotion-recognition has the same
+    # 8 labels but its classifier head fails to load on current transformers
+    # (weights silently randomised → uniform ~0.125 output); do not use it.
     ser_enabled:        bool  = True
-    ser_model:          str   = "superb/wav2vec2-base-superb-er"
+    ser_model:          str   = "Wiam/wav2vec2-lg-xlsr-en-speech-emotion-recognition-finetuned-ravdess-v8"
     ser_boost:          float = 0.15
     ser_min_confidence: float = 0.60
 

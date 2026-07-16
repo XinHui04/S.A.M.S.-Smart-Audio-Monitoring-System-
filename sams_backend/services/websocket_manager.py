@@ -94,9 +94,10 @@ class WebSocketManager:
         event_id:       str,
         location_name:  str,
         severity:       str,
-        threat_score:   float,
+        threat_score:   float,           # 0–1, NLP verdict on speech (SER-boosted, no scream)
         classification: str,
         transcript:     str,
+        final_threat_score: float = None,   # 0–1, max(threat_score, scream_confidence)
         audio_url:      str  = None,
         timestamp:      str  = None,
         location_id:    str  = None,   # FR16: routes the alert to assigned staff
@@ -114,7 +115,8 @@ class WebSocketManager:
             "location_id":    location_id,
             "location_name":  location_name,
             "severity":       severity,
-            "threat_score":   threat_score,
+            "threat_score":       threat_score,
+            "final_threat_score": final_threat_score,
             "classification": classification,
             "transcript":     transcript,
             "audio_url":      audio_url,
