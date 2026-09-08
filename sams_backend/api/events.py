@@ -12,7 +12,7 @@ import os
 import tempfile
 from datetime import datetime
 from fastapi import APIRouter, Body, UploadFile, File, Form, Depends, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from supabase import create_client, Client
@@ -203,52 +203,48 @@ async def stream_audio(
 
     file_path = clip.file_path
 
+    signed_url = audio_storage.get_signed_url(file_path)
+    if signed_url:
+        # Browser follows redirect to Supabase CDN – audio plays instantly
+        return RedirectResponse(url=signed_url, status_code=302)
+
     # ── Resolve to a plain object key ─────────────────────────────────────
-    # Handles three stored formats:
-    #   "supabase://audio-clips/incidents/<uuid>.wav"  → "incidents/<uuid>.wav"
-    #   "supabase://audio-clips/<uuid>.wav"            → "<uuid>.wav"
-    #   "<uuid>.wav"  or  "incidents/<uuid>.wav"       → used as-is
-    # If it's already a full supabase:// URL, pass it directly
-    audio_bytes = None
-
-    if file_path.startswith("supabase://"):
-        audio_bytes = audio_storage.get_bytes(file_path)
-        # if audio_bytes:
-        #     return StreamingResponse(
-        #         io.BytesIO(audio_bytes),
-        #         media_type="audio/wav",
-        #         headers={"Content-Disposition": f"attachment; filename={event_id}.wav"}
-        #     )
-        # raise HTTPException(404, "Audio file not found in Supabase")
     
-    if not audio_bytes and file_path.endswith(".wav"):
-        # Format: "incidents/<uuid>.wav" or plain "<uuid>.wav"
-        audio_bytes = audio_storage.get_bytes(f"supabase://audio-clips/{file_path}")
+    # audio_bytes = None
 
-    if not audio_bytes and file_path.endswith(".wav"):
-        # Last resort: pass as-is to get_bytes (handles local files too)
-        audio_bytes = audio_storage.get_bytes(file_path)
+    audio_bytes = audio_storage.get_bytes(file_path)
 
     if not audio_bytes:
-        logger.error(f"Audio not found for event {event_id}, file_path={file_path}")
         raise HTTPException(404, "Audio file not found")
-
-    # ── Stream with correct headers for browser audio playback ────────────
-    # Content-Disposition: inline  → browser plays it, not downloads it
-    # Accept-Ranges: bytes         → browser can seek and resume
-    # Content-Length               → browser shows correct duration bar
-    audio_length = len(audio_bytes)
-
     return StreamingResponse(
         io.BytesIO(audio_bytes),
         media_type="audio/wav",
         headers={
             "Content-Disposition": f"inline; filename={event_id}.wav",
-            "Accept-Ranges":       "bytes",
-            "Content-Length":      str(audio_length),
-            "Cache-Control":       "no-cache",
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(len(audio_bytes)),
+            "Cache-Control": "no-cache",
         },
     )
+
+    # ── Stream with correct headers for browser audio playback ────────────
+    # Content-Disposition: inline  → browser plays it, not downloads it
+    # Accept-Ranges: bytes         → browser can seek and resume
+    # Content-Length               → browser shows correct duration bar
+    # audio_length = len(audio_bytes)
+
+    # if not audio_bytes and file_path.endswith(".wav"):
+    #     # Format: "incidents/<uuid>.wav" or plain "<uuid>.wav"
+    #     audio_bytes = audio_storage.get_bytes(f"supabase://audio-clips/{file_path}")
+
+    # if not audio_bytes and file_path.endswith(".wav"):
+    #     # Last resort: pass as-is to get_bytes (handles local files too)
+    #     audio_bytes = audio_storage.get_bytes(file_path)
+
+    # if not audio_bytes:
+    #     logger.error(f"Audio not found for event {event_id}, file_path={file_path}")
+    #     raise HTTPException(404, "Audio file not found")
+
     
 
 @router.get(
@@ -282,7 +278,8 @@ async def get_all_events(
                     location_name = location.location_name
 
             confidence = event.confidence_score or 0
-            is_scream = confidence >= 0.70  # Match backend threshold
+            # is_scream = confidence >= 0.70  # Match backend threshold
+            is_scream = confidence >= 0.60  # Match backend threshold
 
             audio_url = None
             if event.audio_clip:

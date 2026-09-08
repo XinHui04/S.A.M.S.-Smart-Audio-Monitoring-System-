@@ -1012,6 +1012,8 @@ let filterStatus = 'active';
 let filterSev    = null;
 let ws           = null;
 let currentAudio = null;
+let currentAudioUrl = null;
+let currentAudioButton = null;
 let appStarted   = false;   // intervals set up only once
 let wsHeartbeat  = null;
 
@@ -1029,6 +1031,7 @@ let selectedDeviceId         = null;
 // ── Auth ──────────────────────────────────────────────────────────────────────
 const TOKEN_KEY = 'sams_token';
 const USER_KEY  = 'sams_user';
+// const audioCache = new Map();
 
 function getToken() { return sessionStorage.getItem(TOKEN_KEY); }
 
@@ -1453,7 +1456,7 @@ function renderDetail(alert) {
     ${alert.audio_url ? `
     <div class="audio-section">
       <div class="audio-player">
-        <button class="audio-play-btn" onclick="toggleAudio('${audioUrlWithToken(alert.audio_url)}', this)" title="Play audio">
+        <button class="audio-play-btn" onclick="toggleAudio('${alert.audio_url}', this)" title="Play audio">
           <svg id="play-icon" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
             <path d="M11.596 8.697L4.604 12.5A.5.5 0 0 1 4 12V4a.5.5 0 0 1 .604-.5l6.992 3.803a.5.5 0 0 1 0 .894z"/>
           </svg>
@@ -1509,30 +1512,213 @@ function audioUrlWithToken(audioUrl) {
 }
 
 // ── Audio playback ─────────────────────────────────────────────────────────────
-async function toggleAudio(url, btn) {
-  // Duration readout lives inside the same player as the clicked button
-  // (the alerts and scream pages each have their own player)
-  const timeEl = btn.closest('.audio-player')?.querySelector('.audio-duration');
-  if (currentAudio && !currentAudio.paused) {
-    currentAudio.pause();
-    btn.innerHTML = `<svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M11.596 8.697L4.604 12.5A.5.5 0 0 1 4 12V4a.5.5 0 0 1 .604-.5l6.992 3.803a.5.5 0 0 1 0 .894z"/></svg>`;
-    return;
-  }
-  if (!currentAudio || currentAudio.src !== url) {
-    currentAudio = new Audio(url);
-    currentAudio.ontimeupdate = () => {
-      if (!timeEl) return;
-      const t = currentAudio.currentTime;
-      timeEl.textContent =
-        `${Math.floor(t/60)}:${String(Math.floor(t%60)).padStart(2,'0')}`;
-    };
-    currentAudio.onended = () => {
-      btn.innerHTML = `<svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M11.596 8.697L4.604 12.5A.5.5 0 0 1 4 12V4a.5.5 0 0 1 .604-.5l6.992 3.803a.5.5 0 0 1 0 .894z"/></svg>`;
-      if (timeEl) timeEl.textContent = '0:00';
-    };
-  }
-  await currentAudio.play();
-  btn.innerHTML = `<svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M5.5 3.5A1.5 1.5 0 0 1 7 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5m5 0A1.5 1.5 0 0 1 12 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5"/></svg>`;
+async function toggleAudio(audioPath, btn) {
+    const timeEl = btn
+        .closest('.audio-player')
+        ?.querySelector('.audio-duration');
+
+    // ── Build full URL with JWT token as query param ────────────────────
+    const token = getToken();
+    const separator = audioPath.includes('?') ? '&' : '?';
+    const fullUrl = `${API}${audioPath}${separator}token=${encodeURIComponent(token)}`;
+
+    try {
+        // ---------------------------------------------------------
+        // CASE 1: The same audio is currently playing
+        // ---------------------------------------------------------
+        if (
+            currentAudio &&
+            currentAudioUrl === audioPath &&
+            !currentAudio.paused
+        ) {
+            currentAudio.pause();
+
+            setPlayIcon(btn);
+
+            return;
+        }
+
+        // ---------------------------------------------------------
+        // CASE 2: Another audio is currently playing
+        // ---------------------------------------------------------
+        if (
+            currentAudio &&
+            currentAudioUrl !== audioPath
+        ) {
+            currentAudio.pause();
+
+            if (currentAudioButton) {
+                setPlayIcon(currentAudioButton);
+            }
+
+            currentAudio.currentTime = 0;
+        }
+
+        // ---------------------------------------------------------
+        // Create / reuse Audio object
+        // ---------------------------------------------------------
+        if (
+            !currentAudio ||
+            currentAudioUrl !== audioPath
+        ) {
+            currentAudio = new Audio();
+            currentAudioUrl = audioPath;
+            currentAudioButton = btn;
+
+            currentAudio.preload = 'auto';
+            currentAudio.src = fullUrl;   // The endpoint will redirect to a signed Supabase URL
+
+
+            // -----------------------------------------------------
+            // Time update
+            // -----------------------------------------------------
+            currentAudio.ontimeupdate = () => {
+                if (!timeEl) return;
+
+                const current = currentAudio.currentTime || 0;
+                const duration = currentAudio.duration || 0;
+
+                const currentText =
+                    `${Math.floor(current / 60)}:` +
+                    `${String(Math.floor(current % 60)).padStart(2, '0')}`;
+
+                if (duration && isFinite(duration)) {
+                    const durationText =
+                        `${Math.floor(duration / 60)}:` +
+                        `${String(Math.floor(duration % 60)).padStart(2, '0')}`;
+
+                    timeEl.textContent =
+                        `${currentText} / ${durationText}`;
+                } else {
+                    timeEl.textContent = currentText;
+                }
+            };
+
+            // -----------------------------------------------------
+            // Metadata loaded
+            // -----------------------------------------------------
+            currentAudio.onloadedmetadata = () => {
+                if (!timeEl) return;
+
+                if (
+                    currentAudio.duration &&
+                    isFinite(currentAudio.duration)
+                ) {
+                    const duration =
+                        currentAudio.duration;
+
+                    timeEl.textContent =
+                        `0:00 / ` +
+                        `${Math.floor(duration / 60)}:` +
+                        `${String(Math.floor(duration % 60)).padStart(2, '0')}`;
+                }
+            };
+
+            // -----------------------------------------------------
+            // Audio ended
+            // -----------------------------------------------------
+            currentAudio.onended = () => {
+                setPlayIcon(btn);
+
+                if (timeEl) {
+                    const duration = currentAudio.duration;
+
+                    if (duration && isFinite(duration)) {
+                        timeEl.textContent =
+                            `0:00 / ` +
+                            `${Math.floor(duration / 60)}:` +
+                            `${String(Math.floor(duration % 60)).padStart(2, '0')}`;
+                    } else {
+                        timeEl.textContent = '0:00';
+                    }
+                }
+
+                currentAudio.currentTime = 0;
+            };
+
+            // -----------------------------------------------------
+            // Audio error
+            // -----------------------------------------------------
+            currentAudio.onerror = () => {
+                console.error(
+                    'Audio playback error:',
+                    currentAudio.error
+                );
+
+                setPlayIcon(btn);
+
+                if (timeEl) {
+                    timeEl.textContent = 'Audio unavailable';
+                }
+
+                currentAudio = null;
+                currentAudioUrl = null;
+                currentAudioButton = null;
+            };
+        }
+
+        // ---------------------------------------------------------
+        // If audio has finished, restart from beginning
+        // ---------------------------------------------------------
+        if (
+            currentAudio.ended ||
+            (
+                currentAudio.duration &&
+                currentAudio.currentTime >= currentAudio.duration
+            )
+        ) {
+            currentAudio.currentTime = 0;
+        }
+
+        // ---------------------------------------------------------
+        // Play
+        // ---------------------------------------------------------
+        currentAudioButton = btn;
+
+        btn.disabled = false;
+        btn.title = 'Pause audio';
+
+        await currentAudio.play();
+
+        setPauseIcon(btn);
+
+    } catch (error) {
+
+        console.error('Unable to play audio:', error);
+
+        btn.disabled = false;
+        btn.title = 'Play audio';
+
+        setPlayIcon(btn);
+
+        if (timeEl) {
+            timeEl.textContent = 'Playback failed';
+        }
+    }
+}
+
+function setPlayIcon(btn) {
+    if (!btn) return;
+
+    btn.innerHTML = `
+        <svg width="14" height="14"
+             fill="currentColor"
+             viewBox="0 0 16 16">
+            <path d="M11.596 8.697L4.604 12.5A.5.5 0 0 1 4 12V4a.5.5 0 0 1 .604-.5l6.992 3.803a.5.5 0 0 1 0 .894z"/>
+        </svg>
+    `;
+}
+
+function setPauseIcon(btn) {
+    if (!btn) return;
+
+    btn.innerHTML = `
+        <svg width="14" height="14"
+             fill="currentColor"
+             viewBox="0 0 16 16">
+            <path d="M5.5 3.5A1.5 1.5 0 0 1 7 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5m5 0A1.5 1.5 0 0 1 12 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5"/>
+        </svg>
+    `;
 }
 
 // ── Page switching ─────────────────────────────────────────────────────────────
@@ -1582,8 +1768,8 @@ async function loadScreamEvents(silent = false) {
       updateScreamBadge();
 
       // Duration fallback for events the API returned without one
-      const stillMissing = allEvents.filter(e => e.audio_url && e.duration === null);
-      if (stillMissing.length > 0) setTimeout(() => preloadAllAudioDurations(), 500);
+      // const stillMissing = allEvents.filter(e => e.audio_url && e.duration === null);
+      // if (stillMissing.length > 0) setTimeout(() => preloadAllAudioDurations(), 500);
 
       // Toast for brand-new scream events
       if (!silent && allEvents.length > lastEventCount && lastEventCount > 0) {
@@ -1758,7 +1944,7 @@ function renderScreamDetail(ev) {
   // Bind playback after render — no inline handlers with interpolated URLs
   const playBtn = panel.querySelector('.audio-play-btn');
   if (playBtn && ev.audio_url) {
-    playBtn.addEventListener('click', () => toggleAudio(audioUrlWithToken(ev.audio_url), playBtn));
+    playBtn.addEventListener('click', () => toggleAudio(ev.audio_url, playBtn));
   }
 }
 
