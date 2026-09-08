@@ -1,15 +1,14 @@
 // ================================================================
-// S.A.M.S. - ESP32 30 pins (Audio Capture Only - No Processing)
+// S.A.M.S. - ESP32-C3 SuperMini (Audio Capture Only - No Processing)
 // ================================================================
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <driver/i2s.h>
-#include <driver/adc.h>
 #include <WiFi.h> 
 #include <WiFiClientSecure.h>
 #include "esp_wifi.h" 
-#include "esp_bt.h"
+#include "esp_bt.h" 
 
 #include "secrets.h"   // WiFi + backend + Supabase credentials (gitignored)
 
@@ -17,7 +16,7 @@
 const char* wifi_ssid = WIFI_SSID;
 const char* wifi_password = WIFI_PASSWORD;
 WiFiClient espClient;
-bool ledwifi_state = false;
+bool ledwifi_state = false; 
 
 // ── Supabase Storage (HTTPS) ──────────────────────────────────────────────
 // SUPABASE_HOST / SUPABASE_KEY come from secrets.h
@@ -36,12 +35,12 @@ bool ledwifi_state = false;
 #define WAV_HEADER_SIZE  44
 
 // Pin Configuration
-#define SOUND_SENSOR_PIN  34
-#define SOUND_THRESHOLD 3000
-#define ALERT_LED_PIN 2
-#define I2S_WS_PIN   19
-#define I2S_SCK_PIN  21
-#define I2S_SD_PIN   18
+#define SOUND_SENSOR_PIN 1
+#define SOUND_THRESHOLD 3500
+#define ALERT_LED_PIN 20
+#define I2S_WS_PIN   5
+#define I2S_SCK_PIN  4
+#define I2S_SD_PIN   6
 
 // Audio Settings
 #define SAMPLE_RATE 16000
@@ -52,7 +51,8 @@ bool ledwifi_state = false;
 // Globals
 // ════════════════════════════════════════════════════════════════════════════
 unsigned long lastTriggerTime = 0;
-const unsigned long triggerCooldownMs = 15000;  // for 8s clips
+const unsigned long triggerCooldownMs = 40000;  // for 8s clips
+// const unsigned long triggerCooldownMs = 15000;  // for 8s clips
 bool isLedAlertActive = false;
 
 // Small stack buffers only — no large heap allocation needed
@@ -117,6 +117,8 @@ void setupNTP();
 void getISO8601Timestamp(char* buf, size_t len);
 bool streamRecordToSupabase(const char* filename, int soundLevel, const char* timestamp);
 bool uploadMetadataToSupabase(const char* uuid, int soundLevel, const char* timestamp);
+// bool notifyBackend(const char* supabasePath, int soundLevel,
+//                    const char* timestamp);
 void triggerSoundDetectedAlert();
 void triggerSolidLedAlert();
 
@@ -131,7 +133,7 @@ void setup() {
     
     Serial.println();
     Serial.println(F("======================================"));
-    Serial.println(F("     S.A.M.S. - ESP32 30-PIN          "));
+    Serial.println(F("   S.A.M.S. - ESP32-C3 SUPERMINI      "));
     Serial.println(F("======================================"));
 
     WiFi.disconnect(true);
@@ -139,11 +141,9 @@ void setup() {
     WiFi.mode(WIFI_STA);
     delay(1000);
 
-    esp_wifi_set_max_tx_power(WIFI_POWER_8_5dBm);
+    esp_wifi_set_max_tx_power(WIFI_POWER_8_5dBm);  // Reduce from 19.5dBm to 8.5dBm 
+    // esp_wifi_set_max_tx_power(WIFI_POWER_10dBm);
 
-    // ADC1_CHANNEL_6 = GPIO34 on standard ESP32 30-pin
-    adc1_config_width(ADC_WIDTH_BIT_12);
-    adc1_config_channel_atten(ADC1_CHANNEL_6, ADC_ATTEN_DB_11);
 
     setupWiFi();
     setupNTP();
@@ -177,7 +177,7 @@ void loop() {
         }
     }
 
-    int soundLevel = adc1_get_raw(ADC1_CHANNEL_6);
+    int soundLevel = analogRead(SOUND_SENSOR_PIN);
 
     static int counter = 0;
     if (++counter >= 20) {
@@ -209,6 +209,14 @@ void loop() {
         char uuid[37];
         generateUUID(uuid, sizeof(uuid));
         
+        /* GENERATE .WAV FILE WITH METADATA TO SUPABASE 
+        // Format: {uuid}_{device_id}_{location_id}_{timestamp}_{soundLevel}.wav
+        // Example: 1ea33c87-35db-40a3-903e-d1e512fe5c4a_esp32-001_loc-toilet-a_2026-07-14T23:00:00_3892.wav
+        char filename[120];
+        snprintf(filename, sizeof(filename), "%s_%s_%s_%s_%d.wav", 
+                uuid, DEVICE_ID, LOCATION_ID, timestamp, soundLevel);
+        */
+
         char filename[80];
         snprintf(filename, sizeof(filename), "%s.wav", uuid);
         // Creates: 1ea33c87-35db-40a3-903e-d1e512fe5c4a.wav  ← This matches bucket
@@ -220,7 +228,14 @@ void loop() {
         bool ok = streamRecordToSupabase(filename, soundLevel, timestamp);
 
         if (ok && metadataOk) {
+            // Serial.println(F("✅ Stream + upload complete!"));
             Serial.println(F("✅ Both stream + metadata upload complete!"));
+
+            // Begin cooldown only after everything has been uploaded
+            lastTriggerTime = millis();
+
+            Serial.println(F("⏳ 40-second cooldown started before accepting another sound event..."));
+            Serial.println(F("   New sound events will be ignored during cooldown."));
         } else {
             Serial.println(F("❌ Stream/upload failed!"));
         }
@@ -357,7 +372,9 @@ bool streamRecordToSupabase(const char* filename, int soundLevel,
                    statusLine.indexOf("201") > 0;
 
     if (success) {
+        // notifyBackend(filename, soundLevel, timestamp);
         Serial.println(F("✅ Upload complete — backend will process asynchronously"));
+        // triggerSoundDetectedAlert();   // reuse your existing quick double-blink pattern
         triggerSolidLedAlert();
     } else {
         Serial.print(F("[Supabase] Upload failed: "));
@@ -516,7 +533,7 @@ void getISO8601Timestamp(char* buf, size_t len) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// I2S Setup (ESP32 30-pin)
+// I2S Setup (ESP32-C3 SuperMini)
 // ════════════════════════════════════════════════════════════════════════════
 void setupI2S() {
     Serial.println(F("Initializing I2S..."));
@@ -528,16 +545,14 @@ void setupI2S() {
         .channel_format    = I2S_CHANNEL_FMT_ONLY_LEFT,
         .communication_format = I2S_COMM_FORMAT_STAND_I2S,
         .intr_alloc_flags  = ESP_INTR_FLAG_LEVEL1,
-        .dma_buf_count     = 4,    // CHANGED: 2→4 for dual-core ESP32 stability
+        .dma_buf_count     = 4,
         .dma_buf_len       = 256,
         .use_apll          = false,
         .tx_desc_auto_clear = false,
         .fixed_mclk        = 0
     };
 
-    // CHANGED: added mck_io_num required by standard ESP32 IDF
     i2s_pin_config_t pin_config = {
-        .mck_io_num   = I2S_PIN_NO_CHANGE,
         .bck_io_num   = I2S_SCK_PIN,
         .ws_io_num    = I2S_WS_PIN,
         .data_out_num = I2S_PIN_NO_CHANGE,
