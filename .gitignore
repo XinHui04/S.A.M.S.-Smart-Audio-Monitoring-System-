@@ -2,7 +2,10 @@
 .env
 .env.*
 !.env.example
-sams_iot/secrets.h
+# Firmware credentials. Matches secrets.h at ANY depth (the sketch lives in
+# sams_iot/noprocess/), so a new sketch folder can never leak a key again.
+secrets.h
+!secrets.h.example
 
 # Python
 __pycache__/
