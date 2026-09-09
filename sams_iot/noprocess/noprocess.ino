@@ -115,8 +115,9 @@ void setupI2S();
 void setupWiFi();
 void setupNTP();
 void getISO8601Timestamp(char* buf, size_t len);
+void getCompactTimestamp(char* buf, size_t len);
 bool streamRecordToSupabase(const char* filename, int soundLevel, const char* timestamp);
-bool uploadMetadataToSupabase(const char* uuid, int soundLevel, const char* timestamp);
+// bool uploadMetadataToSupabase(const char* uuid, int soundLevel, const char* timestamp);
 // bool notifyBackend(const char* supabasePath, int soundLevel,
 //                    const char* timestamp);
 void triggerSoundDetectedAlert();
@@ -205,28 +206,36 @@ void loop() {
         char timestamp[30];
         getISO8601Timestamp(timestamp, sizeof(timestamp));
 
-        // ── Generate UUID filename (matches your bucket format) ──────────
-        char uuid[37];
-        generateUUID(uuid, sizeof(uuid));
-        
+        // Format: {device_id}_{location_id}_{sound_level}_{compact_timestamp}_{short_id}.wav
+        // Example: esp32-001_loc-toilet-a_3421_20260909T153045_a1b2.wav
+        char compactTs[20];
+        getCompactTimestamp(compactTs, sizeof(compactTs));
+
+        uint16_t shortId = (uint16_t)(esp_random() & 0xFFFF); 
+
         /* GENERATE .WAV FILE WITH METADATA TO SUPABASE 
         // Format: {uuid}_{device_id}_{location_id}_{timestamp}_{soundLevel}.wav
         // Example: 1ea33c87-35db-40a3-903e-d1e512fe5c4a_esp32-001_loc-toilet-a_2026-07-14T23:00:00_3892.wav
         char filename[120];
         snprintf(filename, sizeof(filename), "%s_%s_%s_%s_%d.wav", 
                 uuid, DEVICE_ID, LOCATION_ID, timestamp, soundLevel);
-        */
 
         char filename[80];
         snprintf(filename, sizeof(filename), "%s.wav", uuid);
         // Creates: 1ea33c87-35db-40a3-903e-d1e512fe5c4a.wav  ← This matches bucket
+        */
+
+        char filename[128];
+        snprintf(filename, sizeof(filename), "%s_%s_%d_%s_%04x.wav",
+                 DEVICE_ID, LOCATION_ID, soundLevel, compactTs, shortId);
 
         Serial.println(F("🎙️ Recording + streaming 8s to Supabase..."));
 
-        bool metadataOk = uploadMetadataToSupabase(uuid, soundLevel, timestamp);
+        // bool metadataOk = uploadMetadataToSupabase(uuid, soundLevel, timestamp);
 
         bool ok = streamRecordToSupabase(filename, soundLevel, timestamp);
 
+        /*
         if (ok && metadataOk) {
             // Serial.println(F("✅ Stream + upload complete!"));
             Serial.println(F("✅ Both stream + metadata upload complete!"));
@@ -238,6 +247,19 @@ void loop() {
             Serial.println(F("   New sound events will be ignored during cooldown."));
         } else {
             Serial.println(F("❌ Stream/upload failed!"));
+        }
+        */
+
+        if (ok) {
+            Serial.println(F("✅ Upload complete!"));
+
+            // Begin cooldown only after the upload has finished
+            lastTriggerTime = millis();
+
+            Serial.println(F("⏳ 40-second cooldown started before accepting another sound event..."));
+            Serial.println(F("   New sound events will be ignored during cooldown."));
+        } else {
+            Serial.println(F("❌ Upload failed!"));
         }
 
         Serial.println();
@@ -531,6 +553,19 @@ void getISO8601Timestamp(char* buf, size_t len) {
         snprintf(buf, len, "2026-06-23T00:00:00");
     }
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// filename-safe timestamp (no colons), used for metadata-in-filename
+// ════════════════════════════════════════════════════════════════════════════
+void getCompactTimestamp(char* buf, size_t len) {
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo)) {
+        strftime(buf, len, "%Y%m%dT%H%M%S", &timeinfo);
+    } else {
+        snprintf(buf, len, "20260909000000");
+    }
+}
+
 
 // ════════════════════════════════════════════════════════════════════════════
 // I2S Setup (ESP32-C3 SuperMini)

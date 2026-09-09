@@ -35,6 +35,7 @@ from services.storage_service import AudioStorageService
 from services.audio_capture_service import AudioCaptureService
 from services.scream_analyzer import ScreamAnalyzer
 from utils.rate_limit import limiter
+from utils.filename_metadata import parse_metadata_filename
 
 METADATA_CACHE = {}
 
@@ -439,41 +440,81 @@ async def supabase_storage_webhook(
             logger.info(f"[Webhook] File already processed, skipping: {file_name}")
             return {"status": "skipped", "message": "File already processed"}
 
-        # ── Extract UUID from filename ──────────────────────────────────────
-        uuid_base = file_name.replace('.wav', '')
+
+        # # ── Extract UUID from filename ──────────────────────────────────────
+        # uuid_base = file_name.replace('.wav', '')
         
+        # ── Extract metadata: try the new filename-embedded scheme first ────
+        filename_meta = parse_metadata_filename(file_name)   # NEW
+
         # Define default fallbacks 
         device_id = "esp32-001"
         location_id = "loc-toilet-a"
         sound_level = 0
         timestamp_str = ""
 
-        metadata = METADATA_CACHE.pop(uuid_base, None)  # ✅ Retrieve and remove
-
-        # ── Try to get metadata from JSON file ──────────────────────────────
-        if metadata:
-            device_id = metadata.get("device_id", device_id)
-            location_id = metadata.get("location_id", location_id)
-            sound_level = float(metadata.get("sound_level", 0))
-            timestamp_str = metadata.get("timestamp", "")
-            logger.info(f"[Webhook] Using cached metadata for {file_name}: {metadata}")
+        if filename_meta is not None:
+            # ── NEW FORMAT: metadata lives in the filename — no extra fetch ──
+            device_id     = filename_meta["device_id"]
+            location_id   = filename_meta["location_id"]
+            sound_level   = filename_meta["sound_level"]
+            timestamp_str = filename_meta["timestamp"].isoformat()
+            logger.info(f"[Webhook] Parsed metadata from filename: {filename_meta}")
         else:
-            # Try to fetch the JSON metadata file
-            json_file_name = f"{uuid_base}.json"
-            try:
-                json_bytes = audio_storage.get_bytes(f"supabase://audio-clips/{json_file_name}")
-                if json_bytes:
-                    import json
-                    metadata = json.loads(json_bytes)
-                    device_id = metadata.get("device_id", device_id)
-                    location_id = metadata.get("location_id", location_id)
-                    sound_level = float(metadata.get("sound_level", 0))
-                    timestamp_str = metadata.get("timestamp", "")
-                    logger.info(f"[Webhook] Found metadata for {file_name}: {metadata}")
-                else:
-                    logger.warning(f"[Webhook] No metadata file found for {file_name}")
-            except Exception as e:
-                logger.warning(f"[Webhook] Could not load metadata: {e}")
+            # ── LEGACY FORMAT: bare UUID.wav — fall back to the old .json lookup ──
+            uuid_base = file_name.replace('.wav', '')
+            metadata = METADATA_CACHE.pop(uuid_base, None)
+
+            if metadata:
+                device_id = metadata.get("device_id", device_id)
+                location_id = metadata.get("location_id", location_id)
+                sound_level = float(metadata.get("sound_level", 0))
+                timestamp_str = metadata.get("timestamp", "")
+                logger.info(f"[Webhook] Using cached metadata for {file_name}: {metadata}")
+            else:
+                json_file_name = f"{uuid_base}.json"
+                try:
+                    json_bytes = audio_storage.get_bytes(f"supabase://audio-clips/{json_file_name}")
+                    if json_bytes:
+                        import json
+                        metadata = json.loads(json_bytes)
+                        device_id = metadata.get("device_id", device_id)
+                        location_id = metadata.get("location_id", location_id)
+                        sound_level = float(metadata.get("sound_level", 0))
+                        timestamp_str = metadata.get("timestamp", "")
+                        logger.info(f"[Webhook] Found metadata for {file_name}: {metadata}")
+                    else:
+                        logger.warning(f"[Webhook] No metadata file found for {file_name}")
+                except Exception as e:
+                    logger.warning(f"[Webhook] Could not load metadata: {e}")
+
+                    
+        # metadata = METADATA_CACHE.pop(uuid_base, None)  # ✅ Retrieve and remove
+
+        # # ── Try to get metadata from JSON file ──────────────────────────────
+        # if metadata:
+        #     device_id = metadata.get("device_id", device_id)
+        #     location_id = metadata.get("location_id", location_id)
+        #     sound_level = float(metadata.get("sound_level", 0))
+        #     timestamp_str = metadata.get("timestamp", "")
+        #     logger.info(f"[Webhook] Using cached metadata for {file_name}: {metadata}")
+        # else:
+        #     # Try to fetch the JSON metadata file
+        #     json_file_name = f"{uuid_base}.json"
+        #     try:
+        #         json_bytes = audio_storage.get_bytes(f"supabase://audio-clips/{json_file_name}")
+        #         if json_bytes:
+        #             import json
+        #             metadata = json.loads(json_bytes)
+        #             device_id = metadata.get("device_id", device_id)
+        #             location_id = metadata.get("location_id", location_id)
+        #             sound_level = float(metadata.get("sound_level", 0))
+        #             timestamp_str = metadata.get("timestamp", "")
+        #             logger.info(f"[Webhook] Found metadata for {file_name}: {metadata}")
+        #         else:
+        #             logger.warning(f"[Webhook] No metadata file found for {file_name}")
+        #     except Exception as e:
+        #         logger.warning(f"[Webhook] Could not load metadata: {e}")
 
 
         # # ── Extract device info from filename ────────────────────────────────
