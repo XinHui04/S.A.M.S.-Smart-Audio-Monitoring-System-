@@ -1,11 +1,20 @@
 // ── WiFi ────────────────────────────────────────────────────────────────
 #define WIFI_SSID     "Connecting_2.4GHz"
 #define WIFI_PASSWORD "0122260030"
+// #define WIFI_SSID     "xh‘s Galaxy S25 Ultra"
+// #define WIFI_PASSWORD "xin200504"
+// #define WIFI_SSID     "Stravinsky"
+// #define WIFI_PASSWORD "0342881118"
 
 // ── Backend server (FastAPI) ────────────────────────────────────────────
 // LAN IP of the PC running the backend — reconfigure before each upload.
-#define SERVER_IP     "192.168.100.18"
-#define SERVER_PORT   8000
+// #define SERVER_IP     "192.168.100.18"
+// #define SERVER_PORT   8000
+
+
+// DEVICE API KEY 
+// #define DEVICE_API_KEY "2NjNNfeV69IxUzrYcnNL5U_hKyNINTuP5g3lt2htndM"
+#define DEVICE_API_KEY ""
 
 // ── Supabase Storage ────────────────────────────────────────────────────
 // Use the project *anon* key here — with a storage RLS policy that only

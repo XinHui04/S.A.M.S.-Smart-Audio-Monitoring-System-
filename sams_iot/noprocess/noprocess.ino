@@ -18,10 +18,6 @@ const char* wifi_password = WIFI_PASSWORD;
 WiFiClient espClient;
 bool ledwifi_state = false; 
 
-// ── Backend server (FastAPI) ─────────────────────────────────────────
-#define HEARTBEAT_ENDPOINT "/api/devices/heartbeat"
-#define HEARTBEAT_INTERVAL_MS   60000UL   // 60s 
-
 // ── Supabase Storage (HTTPS) ──────────────────────────────────────────────
 // SUPABASE_HOST / SUPABASE_KEY come from secrets.h
 #define SUPABASE_BUCKET  "audio-clips"
@@ -55,6 +51,7 @@ bool ledwifi_state = false;
 // Globals
 // ════════════════════════════════════════════════════════════════════════════
 unsigned long lastHeartbeatTime = 0;
+const unsigned long heartbeatIntervalMs = 60000; 
 
 unsigned long lastTriggerTime = 0;
 const unsigned long triggerCooldownMs = 40000;  // for 8s clips
@@ -124,7 +121,7 @@ void initiateHeartbeat();
 void getISO8601Timestamp(char* buf, size_t len);
 void getCompactTimestamp(char* buf, size_t len);
 bool streamRecordToSupabase(const char* filename, int soundLevel, const char* timestamp);
-bool sendHeartbeat(uint16_t timeoutMs = 1500);
+bool sendHeartbeatToSupabase();
 void triggerSoundDetectedAlert();
 void triggerSolidLedAlert();
 
@@ -245,9 +242,9 @@ void loop() {
 
     // ── heartbeat, checked LAST so it can never delay scream detection ──
     if (WiFi.status() == WL_CONNECTED &&
-        millis() - lastHeartbeatTime >= HEARTBEAT_INTERVAL_MS) {
+        millis() - lastHeartbeatTime >= heartbeatIntervalMs) {
         lastHeartbeatTime = millis();
-        sendHeartbeat(1500);
+        sendHeartbeatToSupabase();
     }
 
     delay(50);
@@ -392,64 +389,66 @@ bool streamRecordToSupabase(const char* filename, int soundLevel,
 
 // ════════════════════════════════════════════════════════════════════════════
 // FR29 — device heartbeat: proves this device is alive even when it hasn't
-// triggered a recording recently. Talks to YOUR FastAPI backend directly
-// (plain HTTP, local network) — NOT Supabase.
+// ── Heartbeat via Supabase PostgREST (no backend IP needed, ever) ────────
 // ════════════════════════════════════════════════════════════════════════════
-bool sendHeartbeat(uint16_t timeoutMs) {
-    WiFiClient client;
-    client.setTimeout(timeoutMs);   // short — must never meaningfully stall the loop
+bool sendHeartbeatToSupabase() {
+    WiFiClientSecure client;
+    client.setInsecure();
+    client.setTimeout(10000);
 
-    if (!client.connect(SERVER_IP, SERVER_PORT)) {
-        Serial.println(F("[Heartbeat] Backend connect failed — will retry next interval"));
+    if (!client.connect(SUPABASE_HOST, 443)) {
+        Serial.println(F("[Heartbeat] HTTPS connect failed"));
         return false;
     }
 
-    String body = "device_id=";
-    body += DEVICE_ID;
+    char timestamp[30];
+    getISO8601Timestamp(timestamp, sizeof(timestamp));
+
+    String jsonBody = "{";
+    jsonBody += "\"device_id\":\"" + String(DEVICE_ID) + "\",";
+    jsonBody += "\"last_seen\":\"" + String(timestamp) + "\"";
+    jsonBody += "}";
+
+     String path = "/rest/v1/device_heartbeats"; 
 
     client.print("POST ");
-    client.print(HEARTBEAT_ENDPOINT);
+    client.print(path);
     client.println(" HTTP/1.1");
     client.print("Host: ");
-    client.print(SERVER_IP);
-    client.print(":");
-    client.println(SERVER_PORT);
-    client.println("Content-Type: application/x-www-form-urlencoded");
+    client.println(SUPABASE_HOST);
+    client.print("apikey: ");
+    client.println(SUPABASE_KEY);              // anon key — see note above
+    client.print("Authorization: Bearer ");
+    client.println(SUPABASE_KEY);
+    client.println("Content-Type: application/json");
+    client.println("Prefer: resolution=merge-duplicates");   // upsert on device_id
     client.print("Content-Length: ");
-    client.println(body.length());
-    client.print("X-API-Key: ");
-    client.println(DEVICE_API_KEY);   // define this in secrets.h
+    client.println(jsonBody.length());
     client.println("Connection: close");
     client.println();
-    client.print(body);
-    client.flush();
+    client.print(jsonBody);
 
-    unsigned long deadline = millis() + timeoutMs;
+    // Fire-and-forget-ish: give it a short window to read the status, then
+    // move on regardless — a missed heartbeat isn't safety-critical.
+    unsigned long deadline = millis() + 5000;
     bool gotStatus = false;
-    String statusLine = "";
-
-    while (millis() < deadline && (client.connected() || client.available())) {
+    String statusLine;
+    while (client.connected() && millis() < deadline) {
         if (client.available()) {
             String line = client.readStringUntil('\n');
-            line.trim();
-            if (!gotStatus && line.startsWith("HTTP/")) {
+            if (!gotStatus && line.indexOf("HTTP") >= 0) {
                 statusLine = line;
                 gotStatus = true;
-                break; // Exit immediately once status line is received
+                break;
             }
         }
-        delay(10);
     }
     client.stop();
 
-    bool ok = gotStatus && (statusLine.indexOf("200") >= 0);
-
-    Serial.print(F("[Heartbeat] Status: "));
-    if (gotStatus) {
-        Serial.println(statusLine); // Will print exact code (e.g. 401, 404, 422, 429)
-    } else {
-        Serial.println(F("NO RESPONSE (Timeout)"));
-    }
+    bool ok = gotStatus && (statusLine.indexOf("200") > 0 || statusLine.indexOf("201") > 0
+                            || statusLine.indexOf("204") > 0);
+    Serial.print(F("[Heartbeat] "));
+    Serial.println(ok ? "OK" : "failed/no response");
     return ok;
 }
 
@@ -592,14 +591,18 @@ void setupNTP() {
 }
 
 void initiateHeartbeat() {
-    Serial.println(F("📡 Registering boot heartbeat with backend..."));
+    Serial.println(F("📡 Registering boot heartbeat with Supabase..."));
     int attempts = 0;
-    while (!sendHeartbeat(5000)) {
+    while (!sendHeartbeatToSupabase() && attempts < 5) {
         attempts++;
         Serial.printf("⚠️ [Boot] Heartbeat failed (Attempt %d). Retrying ...\n", attempts);
         delay(500);
     }
-    Serial.println(F("✅ Boot heartbeat confirmed by backend!"));
+    if (attempts >= 5) {
+        Serial.println(F("⚠️ Boot heartbeat could not be confirmed — continuing anyway."));
+    } else {
+        Serial.println(F("✅ Boot heartbeat confirmed!"));
+    }
 }
 
 void getISO8601Timestamp(char* buf, size_t len) {
