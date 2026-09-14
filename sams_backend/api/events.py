@@ -265,16 +265,31 @@ async def get_all_events(
             .limit(limit)
             .all()
         )
-        
+
+        # Batch fetch Devices and Locations to prevent N+1 queries
+        device_ids = {e.device_id for e in events if e.device_id}
+        devices = (
+            {d.device_id: d for d in db.query(Device).filter(Device.device_id.in_(device_ids)).all()}
+            if device_ids else {}
+        )
+
+        location_ids = {d.location_id for d in devices.values() if d.location_id}
+        locations = (
+            {l.location_id: l for l in db.query(Location).filter(Location.location_id.in_(location_ids)).all()}
+            if location_ids else {}
+        )
+
         result = []
         for event in events:
-            device = db.query(Device).filter(Device.device_id == event.device_id).first()
+            # device = db.query(Device).filter(Device.device_id == event.device_id).first()
+            device = devices.get(event.device_id)
             location_name = "Unknown"
             location_id = "Unknown"
             
             if device and device.location_id:
                 location_id = device.location_id
-                location = db.query(Location).filter(Location.location_id == device.location_id).first()
+                # location = db.query(Location).filter(Location.location_id == device.location_id).first()
+                location = locations.get(device.location_id)
                 if location:
                     location_name = location.location_name
 
