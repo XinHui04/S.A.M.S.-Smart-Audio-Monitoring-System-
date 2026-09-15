@@ -286,42 +286,91 @@ class ScreamAnalyzer:
                 window_results.append((0.0, conf))
 
             # ── Aggregate: any window ≥ threshold = scream detected ──────────
-            THRESHOLD = 0.70
-            MIN_CONSECUTIVE = 3
+            # THRESHOLD = 0.70
+            # MIN_CONSECUTIVE = 3
+
+            THRESHOLD = 0.60
+            MIN_CONSECUTIVE = 2
 
             # Check for consecutive windows above threshold
             confidences = [conf for _, conf in window_results]
 
-            max_confidence = float(np.max(confidences))
+            # max_confidence = float(np.max(confidences))
             average_confidence = float(np.mean(confidences))
             median_confidence = float(np.median(confidences))
             # peak_confidence = float(np.max(confidences))
             # high_windows = sum(conf >= THRESHOLD for conf in confidences)
             # confidence_std = float(np.std(confidences))
             confidence_variation = float(np.std(confidences))
-            
-            best_time = float(max(window_results, key=lambda x: x[1])[0])
+
+            # Find every run of consecutive windows >= THRESHOLD.
+            # Each run: (start_index, end_index) inclusive.
+            runs = []
+            run_start = None
+            for i, conf in enumerate(confidences):
+                if conf >= THRESHOLD:
+                    if run_start is None:
+                        run_start = i
+                else:
+                    if run_start is not None:
+                        runs.append((run_start, i - 1))
+                        run_start = None
+            if run_start is not None:                      # clip ended mid-run
+                runs.append((run_start, len(confidences) - 1))
+
+            # length + peak confidence + peak's own index, per run
+            run_info = [
+                (
+                    end - start + 1,                                   # run length
+                    max(confidences[start:end + 1]),                   # run peak confidence
+                    start + int(np.argmax(confidences[start:end + 1])), # index of that peak
+                )
+                for start, end in runs
+            ]
+
+            # best_time = float(max(window_results, key=lambda x: x[1])[0])
 
             # max_confidence = max(conf for _, conf in window_results)
             # best_time      = max(window_results, key=lambda x: x[1])[0]
             # is_scream      = bool(max_confidence >= THRESHOLD)
 
-            consecutive_count = 0
-            max_consecutive = 0
-            for conf in confidences:
-                if conf >= THRESHOLD:
-                    consecutive_count += 1
-                    max_consecutive = max(max_consecutive, consecutive_count)
-                else:
-                    consecutive_count = 0
+            # consecutive_count = 0
+            # max_consecutive = 0
+            # for conf in confidences:
+            #     if conf >= THRESHOLD:
+            #         consecutive_count += 1
+            #         max_consecutive = max(max_consecutive, consecutive_count)
+            #     else:
+            #         consecutive_count = 0
+
+            max_consecutive = max((length for length, _, _ in run_info), default=0)
 
             is_scream = max_consecutive >= MIN_CONSECUTIVE
 
-            if is_scream:
-                display_confidence = max_confidence   # strong event → show peak
+            # Only runs that actually satisfy MIN_CONSECUTIVE count as a
+            # validated scream event — a standalone spike outside a qualifying
+            # run must NOT inflate the reported confidence.
+            qualifying_runs = [r for r in run_info if r[0] >= MIN_CONSECUTIVE]
+
+            # if is_scream:
+            #     display_confidence = max_confidence   # strong event → show peak
+            #     confidence_type = "peak"
+            # else:
+            #     display_confidence = average_confidence  # weak/no event → show stable metric
+            #     confidence_type = "average"
+
+            if is_scream and qualifying_runs:
+                # If several runs qualify, report the strongest one.
+                best_length, best_confidence, best_index = max(qualifying_runs, key=lambda r: r[1])
+                max_confidence = best_confidence
+                best_time = window_results[best_index][0]
+                display_confidence = max_confidence
                 confidence_type = "peak"
             else:
-                display_confidence = average_confidence  # weak/no event → show stable metric
+                # No validated scream event — fall back to whole-clip stats.
+                max_confidence = float(np.max(confidences))
+                best_time = float(max(window_results, key=lambda x: x[1])[0])
+                display_confidence = average_confidence
                 confidence_type = "average"
 
             high_windows = sum(1 for conf in confidences if conf >= THRESHOLD)

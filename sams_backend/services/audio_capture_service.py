@@ -256,7 +256,7 @@ class AudioCaptureService:
 
         # ── Upload directly to Supabase Bucket object storage space ──────────
         # Generate safe matching folder routing name inside your cloud bucket container
-        supabase_file_path = f"incidents/{event_id}.wav"
+        supabase_file_path = f"{event_id}.wav"
         
         try:
             logger.info(f"Streaming final formatted WAV asset bytes straight to Supabase bucket -> {supabase_file_path}")

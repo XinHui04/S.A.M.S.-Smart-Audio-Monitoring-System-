@@ -50,6 +50,9 @@ bool ledwifi_state = false;
 // ════════════════════════════════════════════════════════════════════════════
 // Globals
 // ════════════════════════════════════════════════════════════════════════════
+unsigned long lastHeartbeatTime = 0;
+const unsigned long heartbeatIntervalMs = 60000; 
+
 unsigned long lastTriggerTime = 0;
 const unsigned long triggerCooldownMs = 40000;  // for 8s clips
 // const unsigned long triggerCooldownMs = 15000;  // for 8s clips
@@ -114,11 +117,11 @@ void buildWavHeader(uint8_t* header, uint32_t numSamples) {
 void setupI2S();
 void setupWiFi();
 void setupNTP();
+void initiateHeartbeat();
 void getISO8601Timestamp(char* buf, size_t len);
+void getCompactTimestamp(char* buf, size_t len);
 bool streamRecordToSupabase(const char* filename, int soundLevel, const char* timestamp);
-bool uploadMetadataToSupabase(const char* uuid, int soundLevel, const char* timestamp);
-// bool notifyBackend(const char* supabasePath, int soundLevel,
-//                    const char* timestamp);
+bool sendHeartbeatToSupabase();
 void triggerSoundDetectedAlert();
 void triggerSolidLedAlert();
 
@@ -148,6 +151,7 @@ void setup() {
     setupWiFi();
     setupNTP();
     setupI2S();
+    initiateHeartbeat(); 
 
     pinMode(SOUND_SENSOR_PIN, INPUT);
     pinMode(ALERT_LED_PIN, OUTPUT);
@@ -201,46 +205,46 @@ void loop() {
 
         triggerSoundDetectedAlert();
 
-        // ── Get timestamp before recording ────────────────────────────────
+        // ── Get timestamp before recording (still used inside filename below) ──
         char timestamp[30];
         getISO8601Timestamp(timestamp, sizeof(timestamp));
 
-        // ── Generate UUID filename (matches your bucket format) ──────────
-        char uuid[37];
-        generateUUID(uuid, sizeof(uuid));
-        
-        /* GENERATE .WAV FILE WITH METADATA TO SUPABASE 
-        // Format: {uuid}_{device_id}_{location_id}_{timestamp}_{soundLevel}.wav
-        // Example: 1ea33c87-35db-40a3-903e-d1e512fe5c4a_esp32-001_loc-toilet-a_2026-07-14T23:00:00_3892.wav
-        char filename[120];
-        snprintf(filename, sizeof(filename), "%s_%s_%s_%s_%d.wav", 
-                uuid, DEVICE_ID, LOCATION_ID, timestamp, soundLevel);
-        */
+        // ── NEW: filename IS the metadata — no separate .json upload needed ────
+        // Format: {device_id}_{location_id}_{sound_level}_{compact_timestamp}_{short_id}.wav
+        // Example: esp32-001_loc-toilet-a_3421_20260909T153045_a1b2.wav
+        char compactTs[20];
+        getCompactTimestamp(compactTs, sizeof(compactTs));
 
-        char filename[80];
-        snprintf(filename, sizeof(filename), "%s.wav", uuid);
-        // Creates: 1ea33c87-35db-40a3-903e-d1e512fe5c4a.wav  ← This matches bucket
+        uint16_t shortId = (uint16_t)(esp_random() & 0xFFFF); 
+
+        char filename[128];
+        snprintf(filename, sizeof(filename), "%s_%s_%d_%s_%04x.wav",
+                 DEVICE_ID, LOCATION_ID, soundLevel, compactTs, shortId);
 
         Serial.println(F("🎙️ Recording + streaming 8s to Supabase..."));
 
-        bool metadataOk = uploadMetadataToSupabase(uuid, soundLevel, timestamp);
-
         bool ok = streamRecordToSupabase(filename, soundLevel, timestamp);
 
-        if (ok && metadataOk) {
-            // Serial.println(F("✅ Stream + upload complete!"));
-            Serial.println(F("✅ Both stream + metadata upload complete!"));
+        if (ok) {
+            Serial.println(F("✅ Upload complete!"));
 
-            // Begin cooldown only after everything has been uploaded
+            // Begin cooldown only after the upload has finished
             lastTriggerTime = millis();
 
             Serial.println(F("⏳ 40-second cooldown started before accepting another sound event..."));
             Serial.println(F("   New sound events will be ignored during cooldown."));
         } else {
-            Serial.println(F("❌ Stream/upload failed!"));
+            Serial.println(F("❌ Upload failed!"));
         }
 
         Serial.println();
+    }
+
+    // ── heartbeat, checked LAST so it can never delay scream detection ──
+    if (WiFi.status() == WL_CONNECTED &&
+        millis() - lastHeartbeatTime >= heartbeatIntervalMs) {
+        lastHeartbeatTime = millis();
+        sendHeartbeatToSupabase();
     }
 
     delay(50);
@@ -372,9 +376,7 @@ bool streamRecordToSupabase(const char* filename, int soundLevel,
                    statusLine.indexOf("201") > 0;
 
     if (success) {
-        // notifyBackend(filename, soundLevel, timestamp);
         Serial.println(F("✅ Upload complete — backend will process asynchronously"));
-        // triggerSoundDetectedAlert();   // reuse your existing quick double-blink pattern
         triggerSolidLedAlert();
     } else {
         Serial.print(F("[Supabase] Upload failed: "));
@@ -383,6 +385,71 @@ bool streamRecordToSupabase(const char* filename, int soundLevel,
     }
 
     return success;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// FR29 — device heartbeat: proves this device is alive even when it hasn't
+// ── Heartbeat via Supabase PostgREST (no backend IP needed, ever) ────────
+// ════════════════════════════════════════════════════════════════════════════
+bool sendHeartbeatToSupabase() {
+    WiFiClientSecure client;
+    client.setInsecure();
+    client.setTimeout(10000);
+
+    if (!client.connect(SUPABASE_HOST, 443)) {
+        Serial.println(F("[Heartbeat] HTTPS connect failed"));
+        return false;
+    }
+
+    char timestamp[30];
+    getISO8601Timestamp(timestamp, sizeof(timestamp));
+
+    String jsonBody = "{";
+    jsonBody += "\"device_id\":\"" + String(DEVICE_ID) + "\",";
+    jsonBody += "\"last_seen\":\"" + String(timestamp) + "\"";
+    jsonBody += "}";
+
+     String path = "/rest/v1/device_heartbeats"; 
+
+    client.print("POST ");
+    client.print(path);
+    client.println(" HTTP/1.1");
+    client.print("Host: ");
+    client.println(SUPABASE_HOST);
+    client.print("apikey: ");
+    client.println(SUPABASE_KEY);              // anon key — see note above
+    client.print("Authorization: Bearer ");
+    client.println(SUPABASE_KEY);
+    client.println("Content-Type: application/json");
+    client.println("Prefer: resolution=merge-duplicates");   // upsert on device_id
+    client.print("Content-Length: ");
+    client.println(jsonBody.length());
+    client.println("Connection: close");
+    client.println();
+    client.print(jsonBody);
+
+    // Fire-and-forget-ish: give it a short window to read the status, then
+    // move on regardless — a missed heartbeat isn't safety-critical.
+    unsigned long deadline = millis() + 5000;
+    bool gotStatus = false;
+    String statusLine;
+    while (client.connected() && millis() < deadline) {
+        if (client.available()) {
+            String line = client.readStringUntil('\n');
+            if (!gotStatus && line.indexOf("HTTP") >= 0) {
+                statusLine = line;
+                gotStatus = true;
+                break;
+            }
+        }
+    }
+    client.stop();
+
+    bool ok = gotStatus && (statusLine.indexOf("200") > 0 || statusLine.indexOf("201") > 0
+                            || statusLine.indexOf("204") > 0);
+    Serial.print(F("[Heartbeat] "));
+    Serial.println(ok ? "OK" : "failed/no response");
+    return ok;
 }
 
 bool uploadMetadataToSupabase(const char* uuid, int soundLevel, const char* timestamp) {
@@ -523,6 +590,21 @@ void setupNTP() {
     }
 }
 
+void initiateHeartbeat() {
+    Serial.println(F("📡 Registering boot heartbeat with Supabase..."));
+    int attempts = 0;
+    while (!sendHeartbeatToSupabase() && attempts < 5) {
+        attempts++;
+        Serial.printf("⚠️ [Boot] Heartbeat failed (Attempt %d). Retrying ...\n", attempts);
+        delay(500);
+    }
+    if (attempts >= 5) {
+        Serial.println(F("⚠️ Boot heartbeat could not be confirmed — continuing anyway."));
+    } else {
+        Serial.println(F("✅ Boot heartbeat confirmed!"));
+    }
+}
+
 void getISO8601Timestamp(char* buf, size_t len) {
     struct tm timeinfo;
     if (getLocalTime(&timeinfo)) {
@@ -531,6 +613,19 @@ void getISO8601Timestamp(char* buf, size_t len) {
         snprintf(buf, len, "2026-06-23T00:00:00");
     }
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// filename-safe timestamp (no colons), used for metadata-in-filename
+// ════════════════════════════════════════════════════════════════════════════
+void getCompactTimestamp(char* buf, size_t len) {
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo)) {
+        strftime(buf, len, "%Y%m%dT%H%M%S", &timeinfo);
+    } else {
+        snprintf(buf, len, "20260909000000");
+    }
+}
+
 
 // ════════════════════════════════════════════════════════════════════════════
 // I2S Setup (ESP32-C3 SuperMini)

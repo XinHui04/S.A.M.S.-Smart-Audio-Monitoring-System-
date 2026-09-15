@@ -22,7 +22,7 @@ Every endpoint requires a valid staff/admin JWT. Security notes:
     no history, no GPS, zone-level only (privacy by design).
 """
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -34,10 +34,12 @@ from api.dependencies import get_db, get_current_user
 
 router = APIRouter(prefix="/api/staff/checkin", tags=["Check-in — FR30"])
 logger = logging.getLogger(__name__)
-
+UTC8 = timezone(timedelta(hours=8))
 
 def _serialize(checkin: StaffCheckin, location_name: str, ttl_seconds: int) -> dict:
-    expired = (datetime.utcnow() - checkin.checked_in_at) > timedelta(seconds=ttl_seconds)
+    now_local = datetime.now(UTC8).replace(tzinfo=None)
+
+    expired = (now_local - checkin.checked_in_at) > timedelta(seconds=ttl_seconds)
     return {
         "location_id":   checkin.location_id,
         "location_name": location_name,
@@ -97,7 +99,7 @@ async def put_checkin(
         raise HTTPException(400, "Unknown location_id")
 
     cfg = get_settings()
-    now = datetime.utcnow()
+    now_local = datetime.now(UTC8).replace(tzinfo=None)
 
     row = (
         db.query(StaffCheckin)
@@ -106,9 +108,9 @@ async def put_checkin(
     )
     if row is not None:
         row.location_id   = body.location_id
-        row.checked_in_at = now
+        row.checked_in_at = now_local
     else:
-        row = StaffCheckin(user_id=user.user_id, location_id=body.location_id, checked_in_at=now)
+        row = StaffCheckin(user_id=user.user_id, location_id=body.location_id, checked_in_at=now_local)
         db.add(row)
     db.commit()
     db.refresh(row)

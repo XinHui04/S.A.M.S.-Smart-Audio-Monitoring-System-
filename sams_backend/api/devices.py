@@ -14,7 +14,7 @@ When no heartbeat row exists we fall back to the stored Device.status column.
 """
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -30,6 +30,7 @@ from utils.rate_limit import limiter
 router = APIRouter(prefix="/api/devices", tags=["Devices — FR25/FR29"])
 logger = logging.getLogger(__name__)
 cfg = get_settings()
+UTC8 = timezone(timedelta(hours=8))
 
 # Device IDs are echoed into logs and used as object-key/DB-key material, so
 # restrict them to a safe charset (blocks log-injection / control chars) and a
@@ -52,18 +53,27 @@ def touch_device_heartbeat(db: Session, device_id: str) -> datetime:
     """Upsert this device's liveness marker to now (FR29). Shared by the
     heartbeat endpoint and the audio-ingestion path. Caller is responsible for
     having validated/ensured the device_id."""
-    now = datetime.utcnow()
+    # now = datetime.utcnow()
+    # now = datetime.now(timezone.utc)
+    now_local = datetime.now(UTC8).replace(tzinfo=None)
+
     hb = (
         db.query(DeviceHeartbeat)
           .filter(DeviceHeartbeat.device_id == device_id)
           .first()
     )
     if hb is None:
-        db.add(DeviceHeartbeat(device_id=device_id, last_seen=now))
+        db.add(DeviceHeartbeat(device_id=device_id, last_seen=now_local))
     else:
-        hb.last_seen = now
+        hb.last_seen = now_local
+
+
+    device = db.query(Device).filter(Device.device_id == device_id).first()
+    if device:
+        device.status = "online"
+
     db.commit()
-    return now
+    return now_local
 
 
 @router.get("/", summary="List all devices with derived online/offline status")
@@ -73,7 +83,9 @@ async def list_devices(
 ):
     """Staff view of the device registry (FR29). Status is derived from the
     heartbeat freshness window; the stored key hash is NEVER returned."""
-    now       = datetime.utcnow()
+    # now       = datetime.utcnow()
+    # now = datetime.now(timezone.utc)
+    now_local = datetime.now(UTC8).replace(tzinfo=None)
     threshold = cfg.device_offline_after_seconds
 
     # Preload the join tables into dicts (single query each) — avoids N+1.
@@ -83,20 +95,29 @@ async def list_devices(
     enrolled   = {c.device_id for c in db.query(DeviceCredential).all()}
 
     out = []
-    for d in db.query(Device).all():
+    status_changed = False  # Track if we need to commit DB updates
+
+    for d in db.query(Device).order_by(Device.device_id.asc()).all():
         loc = locations.get(d.location_id)
         pos = positions.get(d.location_id)
         hb  = heartbeats.get(d.device_id)
 
         if hb is not None:
             last_seen     = hb.last_seen
-            online        = (now - last_seen).total_seconds() <= threshold
+            online        = (now_local - last_seen).total_seconds() <= threshold
             status        = "online" if online else "offline"
             status_source = "heartbeat"
         else:
             last_seen     = None
             status        = d.status
             status_source = "stored"
+
+        # ── SYNC STATUS TO DATABASE ──────────────────────────────────────────
+        # If the computed status differs from what's stored in the DB, update it!
+        if d.status != status:
+            d.status = status
+            status_changed = True
+        # ─────────────────────────────────────────────────────────────────────
 
         out.append({
             "device_id":      d.device_id,
@@ -111,11 +132,15 @@ async def list_devices(
             "has_credential": d.device_id in enrolled,
         })
 
+    # Commit any updated device statuses back to PostgreSQL/Supabase
+    if status_changed:
+        db.commit()
+        
     return {"devices": out, "offline_after_seconds": threshold}
 
 
 @router.post("/heartbeat", summary="[ESP32] Report device liveness")
-@limiter.limit("60/minute")   # abuse protection — per client IP
+# @limiter.limit("60/minute")   # abuse protection — per client IP
 async def device_heartbeat(
     request: Request,
     # device_id arrives in the BODY (form or JSON), so the per-device key check

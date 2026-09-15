@@ -208,3 +208,27 @@ class AudioStorageService:
         except Exception as e:
             logger.error(f"Delete failed for {file_ref}: {e}")
         return False
+
+    # For audio retrieval in the dashboard, we can generate a signed URL for Supabase objects.
+    def get_signed_url(self, file_ref: str, expires_in: int = 3600) -> Optional[str]:
+        if self.is_remote(file_ref):
+            bucket, obj = self._parse_ref(file_ref)
+        else:
+            # If file_ref is a local path, don't generate signed URL
+            if os.path.exists(file_ref) or os.path.isabs(file_ref):
+                return None
+            # Otherwise treat as remote object in default bucket
+            bucket = self.bucket_name
+            obj = file_ref
+
+        try:
+            # bucket, obj = self._parse_ref(file_ref)
+            client = self._get_client()
+            result = client.storage.from_(bucket).create_signed_url(obj, expires_in)
+            # Supabase returns a dict: {"signedURL": "https://..."}
+            if isinstance(result, dict):
+                return result.get('signedURL')
+            return result
+        except Exception as e:
+            logger.error(f"Failed to generate signed URL for {file_ref}: {e}")
+            return None

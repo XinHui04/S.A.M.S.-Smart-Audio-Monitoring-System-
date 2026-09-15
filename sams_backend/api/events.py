@@ -12,7 +12,7 @@ import os
 import tempfile
 from datetime import datetime
 from fastapi import APIRouter, Body, UploadFile, File, Form, Depends, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from supabase import create_client, Client
@@ -35,6 +35,7 @@ from services.storage_service import AudioStorageService
 from services.audio_capture_service import AudioCaptureService
 from services.scream_analyzer import ScreamAnalyzer
 from utils.rate_limit import limiter
+from utils.filename_metadata import parse_metadata_filename
 
 METADATA_CACHE = {}
 
@@ -203,52 +204,48 @@ async def stream_audio(
 
     file_path = clip.file_path
 
+    signed_url = audio_storage.get_signed_url(file_path)
+    if signed_url:
+        # Browser follows redirect to Supabase CDN – audio plays instantly
+        return RedirectResponse(url=signed_url, status_code=302)
+
     # ── Resolve to a plain object key ─────────────────────────────────────
-    # Handles three stored formats:
-    #   "supabase://audio-clips/incidents/<uuid>.wav"  → "incidents/<uuid>.wav"
-    #   "supabase://audio-clips/<uuid>.wav"            → "<uuid>.wav"
-    #   "<uuid>.wav"  or  "incidents/<uuid>.wav"       → used as-is
-    # If it's already a full supabase:// URL, pass it directly
-    audio_bytes = None
-
-    if file_path.startswith("supabase://"):
-        audio_bytes = audio_storage.get_bytes(file_path)
-        # if audio_bytes:
-        #     return StreamingResponse(
-        #         io.BytesIO(audio_bytes),
-        #         media_type="audio/wav",
-        #         headers={"Content-Disposition": f"attachment; filename={event_id}.wav"}
-        #     )
-        # raise HTTPException(404, "Audio file not found in Supabase")
     
-    if not audio_bytes and file_path.endswith(".wav"):
-        # Format: "incidents/<uuid>.wav" or plain "<uuid>.wav"
-        audio_bytes = audio_storage.get_bytes(f"supabase://audio-clips/{file_path}")
+    # audio_bytes = None
 
-    if not audio_bytes and file_path.endswith(".wav"):
-        # Last resort: pass as-is to get_bytes (handles local files too)
-        audio_bytes = audio_storage.get_bytes(file_path)
+    audio_bytes = audio_storage.get_bytes(file_path)
 
     if not audio_bytes:
-        logger.error(f"Audio not found for event {event_id}, file_path={file_path}")
         raise HTTPException(404, "Audio file not found")
-
-    # ── Stream with correct headers for browser audio playback ────────────
-    # Content-Disposition: inline  → browser plays it, not downloads it
-    # Accept-Ranges: bytes         → browser can seek and resume
-    # Content-Length               → browser shows correct duration bar
-    audio_length = len(audio_bytes)
-
     return StreamingResponse(
         io.BytesIO(audio_bytes),
         media_type="audio/wav",
         headers={
             "Content-Disposition": f"inline; filename={event_id}.wav",
-            "Accept-Ranges":       "bytes",
-            "Content-Length":      str(audio_length),
-            "Cache-Control":       "no-cache",
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(len(audio_bytes)),
+            "Cache-Control": "no-cache",
         },
     )
+
+    # ── Stream with correct headers for browser audio playback ────────────
+    # Content-Disposition: inline  → browser plays it, not downloads it
+    # Accept-Ranges: bytes         → browser can seek and resume
+    # Content-Length               → browser shows correct duration bar
+    # audio_length = len(audio_bytes)
+
+    # if not audio_bytes and file_path.endswith(".wav"):
+    #     # Format: "incidents/<uuid>.wav" or plain "<uuid>.wav"
+    #     audio_bytes = audio_storage.get_bytes(f"supabase://audio-clips/{file_path}")
+
+    # if not audio_bytes and file_path.endswith(".wav"):
+    #     # Last resort: pass as-is to get_bytes (handles local files too)
+    #     audio_bytes = audio_storage.get_bytes(file_path)
+
+    # if not audio_bytes:
+    #     logger.error(f"Audio not found for event {event_id}, file_path={file_path}")
+    #     raise HTTPException(404, "Audio file not found")
+
     
 
 @router.get(
@@ -268,21 +265,37 @@ async def get_all_events(
             .limit(limit)
             .all()
         )
-        
+
+        # Batch fetch Devices and Locations to prevent N+1 queries
+        device_ids = {e.device_id for e in events if e.device_id}
+        devices = (
+            {d.device_id: d for d in db.query(Device).filter(Device.device_id.in_(device_ids)).all()}
+            if device_ids else {}
+        )
+
+        location_ids = {d.location_id for d in devices.values() if d.location_id}
+        locations = (
+            {l.location_id: l for l in db.query(Location).filter(Location.location_id.in_(location_ids)).all()}
+            if location_ids else {}
+        )
+
         result = []
         for event in events:
-            device = db.query(Device).filter(Device.device_id == event.device_id).first()
+            # device = db.query(Device).filter(Device.device_id == event.device_id).first()
+            device = devices.get(event.device_id)
             location_name = "Unknown"
             location_id = "Unknown"
             
             if device and device.location_id:
                 location_id = device.location_id
-                location = db.query(Location).filter(Location.location_id == device.location_id).first()
+                # location = db.query(Location).filter(Location.location_id == device.location_id).first()
+                location = locations.get(device.location_id)
                 if location:
                     location_name = location.location_name
 
             confidence = event.confidence_score or 0
-            is_scream = confidence >= 0.70  # Match backend threshold
+            # is_scream = confidence >= 0.70  # Match backend threshold
+            is_scream = confidence >= 0.60  # Match backend threshold
 
             audio_url = None
             if event.audio_clip:
@@ -442,41 +455,81 @@ async def supabase_storage_webhook(
             logger.info(f"[Webhook] File already processed, skipping: {file_name}")
             return {"status": "skipped", "message": "File already processed"}
 
-        # ── Extract UUID from filename ──────────────────────────────────────
-        uuid_base = file_name.replace('.wav', '')
+
+        # # ── Extract UUID from filename ──────────────────────────────────────
+        # uuid_base = file_name.replace('.wav', '')
         
+        # ── Extract metadata: try the new filename-embedded scheme first ────
+        filename_meta = parse_metadata_filename(file_name)   # NEW
+
         # Define default fallbacks 
         device_id = "esp32-001"
         location_id = "loc-toilet-a"
         sound_level = 0
         timestamp_str = ""
 
-        metadata = METADATA_CACHE.pop(uuid_base, None)  # ✅ Retrieve and remove
-
-        # ── Try to get metadata from JSON file ──────────────────────────────
-        if metadata:
-            device_id = metadata.get("device_id", device_id)
-            location_id = metadata.get("location_id", location_id)
-            sound_level = float(metadata.get("sound_level", 0))
-            timestamp_str = metadata.get("timestamp", "")
-            logger.info(f"[Webhook] Using cached metadata for {file_name}: {metadata}")
+        if filename_meta is not None:
+            # ── NEW FORMAT: metadata lives in the filename — no extra fetch ──
+            device_id     = filename_meta["device_id"]
+            location_id   = filename_meta["location_id"]
+            sound_level   = filename_meta["sound_level"]
+            timestamp_str = filename_meta["timestamp"].isoformat()
+            logger.info(f"[Webhook] Parsed metadata from filename: {filename_meta}")
         else:
-            # Try to fetch the JSON metadata file
-            json_file_name = f"{uuid_base}.json"
-            try:
-                json_bytes = audio_storage.get_bytes(f"supabase://audio-clips/{json_file_name}")
-                if json_bytes:
-                    import json
-                    metadata = json.loads(json_bytes)
-                    device_id = metadata.get("device_id", device_id)
-                    location_id = metadata.get("location_id", location_id)
-                    sound_level = float(metadata.get("sound_level", 0))
-                    timestamp_str = metadata.get("timestamp", "")
-                    logger.info(f"[Webhook] Found metadata for {file_name}: {metadata}")
-                else:
-                    logger.warning(f"[Webhook] No metadata file found for {file_name}")
-            except Exception as e:
-                logger.warning(f"[Webhook] Could not load metadata: {e}")
+            # ── LEGACY FORMAT: bare UUID.wav — fall back to the old .json lookup ──
+            uuid_base = file_name.replace('.wav', '')
+            metadata = METADATA_CACHE.pop(uuid_base, None)
+
+            if metadata:
+                device_id = metadata.get("device_id", device_id)
+                location_id = metadata.get("location_id", location_id)
+                sound_level = float(metadata.get("sound_level", 0))
+                timestamp_str = metadata.get("timestamp", "")
+                logger.info(f"[Webhook] Using cached metadata for {file_name}: {metadata}")
+            else:
+                json_file_name = f"{uuid_base}.json"
+                try:
+                    json_bytes = audio_storage.get_bytes(f"supabase://audio-clips/{json_file_name}")
+                    if json_bytes:
+                        import json
+                        metadata = json.loads(json_bytes)
+                        device_id = metadata.get("device_id", device_id)
+                        location_id = metadata.get("location_id", location_id)
+                        sound_level = float(metadata.get("sound_level", 0))
+                        timestamp_str = metadata.get("timestamp", "")
+                        logger.info(f"[Webhook] Found metadata for {file_name}: {metadata}")
+                    else:
+                        logger.warning(f"[Webhook] No metadata file found for {file_name}")
+                except Exception as e:
+                    logger.warning(f"[Webhook] Could not load metadata: {e}")
+
+                    
+        # metadata = METADATA_CACHE.pop(uuid_base, None)  # ✅ Retrieve and remove
+
+        # # ── Try to get metadata from JSON file ──────────────────────────────
+        # if metadata:
+        #     device_id = metadata.get("device_id", device_id)
+        #     location_id = metadata.get("location_id", location_id)
+        #     sound_level = float(metadata.get("sound_level", 0))
+        #     timestamp_str = metadata.get("timestamp", "")
+        #     logger.info(f"[Webhook] Using cached metadata for {file_name}: {metadata}")
+        # else:
+        #     # Try to fetch the JSON metadata file
+        #     json_file_name = f"{uuid_base}.json"
+        #     try:
+        #         json_bytes = audio_storage.get_bytes(f"supabase://audio-clips/{json_file_name}")
+        #         if json_bytes:
+        #             import json
+        #             metadata = json.loads(json_bytes)
+        #             device_id = metadata.get("device_id", device_id)
+        #             location_id = metadata.get("location_id", location_id)
+        #             sound_level = float(metadata.get("sound_level", 0))
+        #             timestamp_str = metadata.get("timestamp", "")
+        #             logger.info(f"[Webhook] Found metadata for {file_name}: {metadata}")
+        #         else:
+        #             logger.warning(f"[Webhook] No metadata file found for {file_name}")
+        #     except Exception as e:
+        #         logger.warning(f"[Webhook] Could not load metadata: {e}")
 
 
         # # ── Extract device info from filename ────────────────────────────────

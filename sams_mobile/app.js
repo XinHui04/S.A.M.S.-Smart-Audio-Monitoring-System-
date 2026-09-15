@@ -384,20 +384,61 @@ function renderDetail(a) {
 const ICON_PLAY  = '<svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M11.6 8.7L4.6 12.5A.5.5 0 0 1 4 12V4a.5.5 0 0 1 .6-.5l7 3.8a.5.5 0 0 1 0 .9z"/></svg>';
 const ICON_PAUSE = '<svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M5.5 3.5A1.5 1.5 0 0 1 7 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5m5 0A1.5 1.5 0 0 1 12 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5"/></svg>';
 
+// async function toggleAudio(url, btn) {
+//   if (currentAudio && !currentAudio.paused && currentAudio.src.endsWith(url.replace(API, ''))) {
+//     currentAudio.pause(); btn.innerHTML = ICON_PLAY; return;
+//   }
+//   if (!currentAudio || !currentAudio.src.endsWith(url.replace(API, ''))) {
+//     currentAudio = new Audio(url);
+//     currentAudio.ontimeupdate = () => {
+//       const t = currentAudio.currentTime;
+//       const el = $('audio-time');
+//       if (el) el.textContent = `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+//     };
+//     currentAudio.onended = () => { btn.innerHTML = ICON_PLAY; const el = $('audio-time'); if (el) el.textContent = '0:00'; };
+//   }
+//   try { await currentAudio.play(); btn.innerHTML = ICON_PAUSE; } catch {}
+// }
 async function toggleAudio(url, btn) {
-  if (currentAudio && !currentAudio.paused && currentAudio.src.endsWith(url.replace(API, ''))) {
-    currentAudio.pause(); btn.innerHTML = ICON_PLAY; return;
-  }
-  if (!currentAudio || !currentAudio.src.endsWith(url.replace(API, ''))) {
+    console.log('PLAYBACK CLICK');
+    console.log('Audio URL:', url);
+
+    if (currentAudio && !currentAudio.paused) {
+        console.log('PAUSING AUDIO');
+        currentAudio.pause();
+        btn.innerHTML = ICON_PLAY;
+        return;
+    }
+
+    console.log('CREATING AUDIO');
+
     currentAudio = new Audio(url);
-    currentAudio.ontimeupdate = () => {
-      const t = currentAudio.currentTime;
-      const el = $('audio-time');
-      if (el) el.textContent = `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+
+    currentAudio.onplay = () => {
+        console.log('AUDIO PLAY EVENT');
     };
-    currentAudio.onended = () => { btn.innerHTML = ICON_PLAY; const el = $('audio-time'); if (el) el.textContent = '0:00'; };
-  }
-  try { await currentAudio.play(); btn.innerHTML = ICON_PAUSE; } catch {}
+
+    currentAudio.onpause = () => {
+        console.log('AUDIO PAUSE EVENT');
+    };
+
+    currentAudio.onerror = (e) => {
+        console.error('AUDIO ERROR:', e);
+    };
+
+    currentAudio.onended = () => {
+        console.log('AUDIO ENDED');
+        btn.innerHTML = ICON_PLAY;
+    };
+
+    try {
+        console.log('CALLING PLAY()');
+        await currentAudio.play();
+        console.log('PLAY() SUCCESS');
+        btn.innerHTML = ICON_PAUSE;
+    } catch (err) {
+        console.error('PLAY() FAILED:', err);
+    }
 }
 
 // ── Acknowledge (FR17) ──────────────────────────────────────────────────────
