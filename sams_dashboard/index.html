@@ -533,6 +533,25 @@
   .filter-btn.active { background: var(--amber-dim); border-color: var(--amber); color: var(--amber); }
   .filter-btn.scream-active { background: var(--red-dim); border-color: var(--red); color: var(--red); }
 
+  /* Date-range row: sits under the status/severity pills on the alerts tab */
+  .filter-dates {
+    display: flex; gap: 6px; align-items: center; width: 100%;
+    margin-top: 6px; padding-top: 6px;
+    border-top: 1px solid var(--border-subtle);
+  }
+  .filter-dates label {
+    font-size: 10px; color: var(--text-secondary);
+    font-family: var(--font-mono); text-transform: uppercase;
+  }
+  .filter-date {
+    font-size: 11px; padding: 2px 6px; border-radius: 4px;
+    border: 1px solid var(--border); background: none;
+    color: var(--text-secondary); font-family: var(--font-mono);
+    color-scheme: dark;
+  }
+  .filter-date:focus { outline: none; border-color: var(--amber); color: var(--amber); }
+  .filter-date.set   { border-color: var(--amber); color: var(--amber); }
+
   .empty-state {
     padding: 32px 16px; text-align: center;
     color: var(--text-muted); font-size: 13px;
@@ -820,6 +839,13 @@
           <button class="filter-btn" style="margin-left:auto" onclick="setFilter('high', this)">High</button>
           <button class="filter-btn" onclick="setFilter('medium', this)">Med</button>
           <button class="filter-btn" onclick="setFilter('low', this)">Low</button>
+          <div class="filter-dates">
+            <label for="filter-date-from">From</label>
+            <input type="date" class="filter-date" id="filter-date-from" onchange="setDateFilter()">
+            <label for="filter-date-to">To</label>
+            <input type="date" class="filter-date" id="filter-date-to" onchange="setDateFilter()">
+            <button class="filter-btn" style="margin-left:auto" onclick="clearDateFilter()">Clear</button>
+          </div>
         </div>
         <div class="sidebar-list" id="alert-list">
           <div class="empty-state">Loading alerts…</div>
@@ -1010,6 +1036,8 @@ let alerts       = [];
 let selectedId   = null;
 let filterStatus = 'active';
 let filterSev    = null;
+let filterFrom   = null;   // 'YYYY-MM-DD' as picked by the operator (local date)
+let filterTo     = null;
 let ws           = null;
 let currentAudio = null;
 let appStarted   = false;   // intervals set up only once
@@ -1256,7 +1284,8 @@ async function loadAlerts() {
     // so acknowledged alerts stay visible until resolved.
     const status = filterStatus === 'high' || filterStatus === 'medium' || filterStatus === 'low'
                    ? 'all' : (filterStatus === 'active' ? 'open' : filterStatus);
-    const res  = await authFetch(`${API}/api/alerts/?status=${status}${sev}&per_page=50`);
+    const res  = await authFetch(
+      `${API}/api/alerts/?status=${status}${sev}${dateRangeParams()}&per_page=50`);
     const data = await res.json();
     alerts = data.alerts || [];
     renderAlertList();
@@ -1298,7 +1327,12 @@ function renderAlertList() {
   if (filterStatus === 'low')      data = data.filter(a => a.severity === 'low');
 
   if (!data.length) {
-    list.innerHTML = '<div class="empty-state">No alerts match this filter</div>';
+    const dateNote =
+      filterFrom && filterTo && filterFrom > filterTo ? ' — start date is after end date'
+      : (filterFrom || filterTo)                      ? ' — try widening the date range'
+      : '';
+    list.innerHTML =
+      `<div class="empty-state">No alerts match this filter${escHtml(dateNote)}</div>`;
     return;
   }
 
@@ -2876,6 +2910,48 @@ function setFilter(val, el) {
   el.classList.add('active');
   if (['active','acknowledged','resolved','all'].includes(val)) { filterStatus = val; filterSev = null; }
   else { filterSev = val; filterStatus = 'all'; }
+  loadAlerts();
+}
+
+// ── Date-range filter ─────────────────────────────────────────────────────────
+// Timestamps are stored in UTC but operators think in local dates, so a picked
+// day is converted to the UTC instants that bracket it. "From 9 Sep" in UTC+8
+// becomes 2026-09-08T16:00:00Z, which correctly catches an alert stored at
+// 22:07 UTC on 8 Sep — 06:07 local on the 9th.
+function localDateToUtcIso(dateStr, dayOffset = 0) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d + dayOffset, 0, 0, 0, 0).toISOString();
+}
+
+function dateRangeParams() {
+  let qs = '';
+  // date_to is exclusive server-side, so send the start of the following day
+  // to keep the operator's chosen end date inclusive.
+  if (filterFrom) qs += `&date_from=${encodeURIComponent(localDateToUtcIso(filterFrom, 0))}`;
+  if (filterTo)   qs += `&date_to=${encodeURIComponent(localDateToUtcIso(filterTo, 1))}`;
+  return qs;
+}
+
+function setDateFilter() {
+  const fromEl = document.getElementById('filter-date-from');
+  const toEl   = document.getElementById('filter-date-to');
+  filterFrom = fromEl.value || null;
+  filterTo   = toEl.value   || null;
+
+  // An inverted range is left to the server, which returns nothing; the list's
+  // empty state explains it rather than blocking the interaction.
+  fromEl.classList.toggle('set', !!filterFrom);
+  toEl.classList.toggle('set',   !!filterTo);
+  loadAlerts();
+}
+
+function clearDateFilter() {
+  filterFrom = filterTo = null;
+  for (const id of ['filter-date-from', 'filter-date-to']) {
+    const el = document.getElementById(id);
+    el.value = '';
+    el.classList.remove('set');
+  }
   loadAlerts();
 }
 

@@ -5,7 +5,7 @@ MODULE 3 & 4: Reporting + Main Monitoring Dashboard
 ═══════════════════════════════════════════════════════
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import case
 from sqlalchemy.orm import Session
@@ -56,6 +56,41 @@ def _assert_alert_access(alert: Alert, user: User, db: Session) -> None:
         raise HTTPException(404, "Alert not found")
 
 
+def _as_utc_iso(value: datetime | None) -> str | None:
+    """
+    Serialise a stored timestamp as an unambiguous UTC instant.
+
+    Timestamps are written with datetime.utcnow(), so they are UTC but carry no
+    tzinfo. isoformat() on a naive value emits no offset, and JavaScript parses
+    a suffix-less datetime as LOCAL time — which displayed a 22:07 UTC alert as
+    22:07 in a UTC+8 browser, eight hours early. Stamping the offset makes the
+    instant explicit so clients convert it correctly.
+    """
+    if value is None:
+        return None
+    return value.replace(tzinfo=timezone.utc).isoformat()
+
+
+def _parse_ts(value: str, field: str) -> datetime:
+    """
+    Parse a caller-supplied ISO-8601 instant into naive UTC for comparison
+    against the stored (naive UTC) columns.
+
+    Accepts a full instant ("2026-09-08T16:00:00Z", what the dashboard sends
+    after converting the user's local date) and a bare date ("2026-09-09",
+    read as UTC midnight) for direct API use.
+    """
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        raise HTTPException(
+            422, f"{field} must be ISO-8601 (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ)"
+        )
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
+
+
 def _enrich_alert(alert: Alert, db: Session) -> dict:
     """Joins location, transcript, and analysis data onto an alert row."""
     event    = alert.event
@@ -78,8 +113,8 @@ def _enrich_alert(alert: Alert, db: Session) -> dict:
         "event_id":       alert.event_id,
         "severity":       alert.severity,
         "status":         alert.status,
-        "created_at":     alert.created_at.isoformat(),
-        "resolved_at":    alert.resolved_at.isoformat() if alert.resolved_at else None,
+        "created_at":     _as_utc_iso(alert.created_at),
+        "resolved_at":    _as_utc_iso(alert.resolved_at),
         "location_name":  location.location_name if location else "Unknown",
         "location_id":    device.location_id if device else None,
         "transcript":     transcript.text if transcript else None,
@@ -99,6 +134,11 @@ def _enrich_alert(alert: Alert, db: Session) -> dict:
 async def list_alerts(
     status:   str = "open",   # active | acknowledged | resolved | open (active+acknowledged) | all
     severity: str = None,
+    # Date range, inclusive of date_from and exclusive of date_to. The dashboard
+    # converts the user's local calendar dates to UTC instants before sending,
+    # so a filter reads as the operator's day, not the stored UTC day.
+    date_from: str = Query(None, description="ISO-8601 instant or YYYY-MM-DD; inclusive"),
+    date_to:   str = Query(None, description="ISO-8601 instant or YYYY-MM-DD; exclusive"),
     page:     int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     db:   Session = Depends(get_db),
@@ -140,6 +180,13 @@ async def list_alerts(
         query = query.filter(Alert.status == status)
     if severity:
         query = query.filter(Alert.severity == severity)
+
+    # Applied to the same query object, so the FR16 location restriction above
+    # still constrains the result — a date filter must never widen visibility.
+    if date_from:
+        query = query.filter(Alert.created_at >= _parse_ts(date_from, "date_from"))
+    if date_to:
+        query = query.filter(Alert.created_at < _parse_ts(date_to, "date_to"))
 
     total  = query.count()
     alerts = query.offset((page - 1) * per_page).limit(per_page).all()
